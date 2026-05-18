@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Building2, KeyRound, AlertTriangle, TrendingUp, Clock, Ban, CheckCircle2, ShoppingCart, UserX, Activity, WifiOff, Zap, Megaphone, Loader2, Gift, Mail, MailX } from 'lucide-react'
+import { Building2, KeyRound, AlertTriangle, TrendingUp, Clock, Ban, CheckCircle2, ShoppingCart, UserX, Activity, WifiOff, Zap, Megaphone, Loader2, Gift, Mail, MailX, ShieldCheck, GitBranch } from 'lucide-react'
 import { useLang } from '../../i18n'
 import { listContainer, listItem, cardHover, AnimatedNumber } from '../motion'
 
@@ -20,7 +20,8 @@ const TONE = {
   brand: { ic: 'text-[#b3001e]',     bg: 'bg-[#b3001e]/10',   br: 'border-[#b3001e]/25' },
   ok:    { ic: 'text-emerald-500',   bg: 'bg-emerald-500/10', br: 'border-emerald-500/25' },
   warn:  { ic: 'text-amber-500',     bg: 'bg-amber-500/10',   br: 'border-amber-500/25' },
-  bad:   { ic: 'text-[#b3001e]',     bg: 'bg-[#b3001e]/10',   br: 'border-[#b3001e]/25' },
+  bad:   { ic: 'text-red-500',       bg: 'bg-red-500/10',     br: 'border-red-500/25' },
+  gray:  { ic: 'text-slate-400',     bg: 'bg-slate-500/10',   br: 'border-slate-500/25' },
 }
 
 // 2026-05-03 (peppy-greeting-popcorn) — color palette per error category so
@@ -278,210 +279,123 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
         </p>
       </motion.div>
 
-      {/* Deploy Health — Layer 1 post-ff65749 incident surfacing. Catches the
-          exact silent-failure classes that took prod down for 6h on 2026-05-17. */}
+      {/* 2026-05-18 — Health KPI tiles. Deploy Health / Cron Health / Flow Drift
+          rendered as compact icon+label+value tiles matching Clientes totales
+          + Licencias activas. Click a tile to expand the failure detail inline.
+          Original verbose status rows kept below as expandable detail panels. */}
       {(() => {
-        const latest = smokeHistory[0]
-        const failing = latest && latest.failed_count > 0
-        if (!latest) {
-          return (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              className={`rounded-2xl p-4 transition-colors ${cardBase} flex items-center justify-between`}>
-              <div className="flex items-center gap-3">
-                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
-                <p className={`text-[13px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
-                  {L('Deploy Health — sin datos aún (cron corre cada 15 min).', 'Deploy Health — no data yet (cron runs every 15 min).')}
-                </p>
-              </div>
-            </motion.div>
-          )
-        }
-        const ts = new Date(latest.ran_at)
-        const minsAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000))
-        const dotColor = failing ? 'bg-red-500' : 'bg-emerald-500'
-        const bgTone = failing
-          ? (isDark ? 'border-red-500/40 bg-red-500/10' : 'border-red-500/40 bg-red-500/5')
-          : ''
+        const healthTiles = [
+          { key: 'deploy', icon: ShieldCheck, label: L('Salud Deploy', 'Deploy Health'),
+            latest: smokeHistory[0], totalKey: 'total_count',
+            expanded: smokeExpanded, setExpanded: setSmokeExpanded,
+            emptyHint: L('Esperando primer ciclo del cron', 'Awaiting first cron cycle') },
+          { key: 'cron', icon: Clock, label: L('Salud Crons', 'Cron Health'),
+            latest: cronHealth[0], totalKey: 'total_checks',
+            expanded: cronHealthExpanded, setExpanded: setCronHealthExpanded,
+            emptyHint: L('Esperando primer ciclo del cron', 'Awaiting first cron cycle') },
+          { key: 'flow', icon: GitBranch, label: L('Flow Drift', 'Flow Drift'),
+            latest: flowDrift[0], totalKey: 'total_count',
+            expanded: flowDriftExpanded, setExpanded: setFlowDriftExpanded,
+            emptyHint: L('Esperando primer ciclo del cron', 'Awaiting first cron cycle') },
+        ]
         return (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-            className={`rounded-2xl p-5 transition-colors border ${cardBase} ${bgTone}`}>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${failing ? 'animate-pulse' : ''}`} />
-                <div>
-                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
-                    {failing
-                      ? L(`Deploy Health: ${latest.failed_count} fallo${latest.failed_count === 1 ? '' : 's'} de ${latest.total_count}`,
-                            `Deploy Health: ${latest.failed_count} failure${latest.failed_count === 1 ? '' : 's'} of ${latest.total_count}`)
-                      : L(`Deploy Health: ${latest.passed_count}/${latest.total_count} OK`,
-                            `Deploy Health: ${latest.passed_count}/${latest.total_count} OK`)}
-                  </p>
-                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                    {L(`Hace ${minsAgo} min · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`,
-                       `${minsAgo}m ago · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`)}
-                    {latest.bundle_hash ? ` · ${latest.bundle_hash.slice(0, 24)}` : ''}
-                  </p>
-                </div>
-              </div>
-              {failing && (
-                <button onClick={() => setSmokeExpanded(s => !s)}
-                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${isDark ? 'border-red-400/40 text-red-300 hover:bg-red-500/10' : 'border-red-500/40 text-red-600 hover:bg-red-500/5'}`}>
-                  {smokeExpanded ? L('Ocultar', 'Hide') : L('Ver fallos', 'Show failures')}
-                </button>
-              )}
-            </div>
-            {failing && smokeExpanded && Array.isArray(latest.failures) && (
-              <div className="mt-3 space-y-1.5">
-                {latest.failures.map((f, i) => (
-                  <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 ${f.severity === 'warning' ? 'border-amber-400' : 'border-red-500'}`}>
-                    <span className="font-bold">[{f.category}]</span> {f.check}
-                    {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 200)}</span> : null}
-                    {f.actual ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>actual: {String(f.actual).slice(0, 200)}</span> : null}
+            className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {healthTiles.map(tile => {
+              const { icon: Icon, label, latest, totalKey, expanded, setExpanded, emptyHint } = tile
+              const total = latest ? (latest[totalKey] || latest.total_count || 0) : 0
+              const passed = latest ? (latest.passed_count || 0) : 0
+              const failed = latest ? (latest.failed_count || 0) : 0
+              const tone = !latest ? 'gray' : (failed > 0 ? 'bad' : 'ok')
+              const t = TONE[tone]
+              const canExpand = !!latest && failed > 0 && Array.isArray(latest.failures) && latest.failures.length > 0
+              const onClick = canExpand ? () => setExpanded(s => !s) : undefined
+              return (
+                <motion.div
+                  key={tile.key}
+                  whileHover={canExpand ? { y: -3, scale: 1.012 } : undefined}
+                  transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+                  onClick={onClick}
+                  title={!latest ? emptyHint : undefined}
+                  className={`relative rounded-2xl px-5 py-5 transition-colors overflow-hidden ${cardBase} ${canExpand ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <div className={`absolute -top-10 -right-10 w-24 h-24 rounded-full ${t.bg} blur-2xl`} />
+                  <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center border ${t.bg} ${t.br} mb-4`}>
+                    <Icon size={18} className={t.ic} />
                   </div>
-                ))}
-              </div>
-            )}
+                  <p className="relative text-[10px] font-bold text-[#b3001e] uppercase tracking-[1.2px]">{label}</p>
+                  <p className={`relative text-[30px] font-black mt-1 tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                    {latest ? `${passed}/${total}` : '—'}
+                  </p>
+                  {latest && failed > 0 && (
+                    <p className="relative text-[10px] font-bold text-red-500 mt-1">
+                      {L(`${failed} fallo${failed === 1 ? '' : 's'}`, `${failed} failure${failed === 1 ? '' : 's'}`)}
+                      {canExpand && <span className="ml-1 opacity-60">· {expanded ? L('ocultar', 'hide') : L('ver', 'view')}</span>}
+                    </p>
+                  )}
+                </motion.div>
+              )
+            })}
           </motion.div>
         )
       })()}
 
-      {/* Cron Health — Layer 3 downstream side-effect verifier. Catches the
-          silent 200-but-no-output failures that Layer 1 (HTTP) misses. Each cron
-          has an expected business-side row (digest activity_log, dgii last_pull_at,
-          anecf queue movement, smoke run insert) — if it's stale, we flag it. */}
-      {(() => {
-        const latest = cronHealth[0]
-        const failing = latest && latest.failed_count > 0
-        if (!latest) {
-          return (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              className={`rounded-2xl p-4 transition-colors ${cardBase} flex items-center justify-between`}>
-              <div className="flex items-center gap-3">
-                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
-                <p className={`text-[13px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
-                  {L('Cron Health — sin datos aún (verificador corre cada 30 min).', 'Cron Health — no data yet (verifier runs every 30 min).')}
-                </p>
+      {/* Failure drill-downs — render inline below the KPI tiles when expanded.
+          Keeps the diagnostic detail the legacy verbose rows had; only the
+          at-a-glance display compacts into the KPI tiles above. */}
+      {smokeExpanded && smokeHistory[0]?.failed_count > 0 && Array.isArray(smokeHistory[0]?.failures) && (
+        <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+          className={`rounded-2xl p-5 border border-red-500/40 ${isDark ? 'bg-red-500/10' : 'bg-red-500/5'}`}>
+          <p className={`text-[11px] font-bold uppercase tracking-[1.2px] text-red-500 mb-2`}>
+            {L('Salud Deploy · fallos', 'Deploy Health · failures')}
+          </p>
+          <div className="space-y-1.5">
+            {smokeHistory[0].failures.map((f, i) => (
+              <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 ${f.severity === 'warning' ? 'border-amber-400' : 'border-red-500'}`}>
+                <span className="font-bold">[{f.category}]</span> {f.check}
+                {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 200)}</span> : null}
+                {f.actual ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>actual: {String(f.actual).slice(0, 200)}</span> : null}
               </div>
-            </motion.div>
-          )
-        }
-        const ts = new Date(latest.ran_at)
-        const minsAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000))
-        const dotColor = failing ? 'bg-red-500' : 'bg-emerald-500'
-        const bgTone = failing
-          ? (isDark ? 'border-red-500/40 bg-red-500/10' : 'border-red-500/40 bg-red-500/5')
-          : ''
-        return (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-            className={`rounded-2xl p-5 transition-colors border ${cardBase} ${bgTone}`}>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${failing ? 'animate-pulse' : ''}`} />
-                <div>
-                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
-                    {failing
-                      ? L(`Cron Health: ${latest.failed_count} cron${latest.failed_count === 1 ? '' : 's'} sin output de ${latest.total_checks}`,
-                            `Cron Health: ${latest.failed_count} cron${latest.failed_count === 1 ? '' : 's'} silent of ${latest.total_checks}`)
-                      : L(`Cron Health: ${latest.passed_count}/${latest.total_checks} OK`,
-                            `Cron Health: ${latest.passed_count}/${latest.total_checks} OK`)}
-                  </p>
-                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                    {L(`Hace ${minsAgo} min · ${latest.duration_ms || 0}ms`,
-                       `${minsAgo}m ago · ${latest.duration_ms || 0}ms`)}
-                  </p>
-                </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+      {cronHealthExpanded && cronHealth[0]?.failed_count > 0 && Array.isArray(cronHealth[0]?.failures) && (
+        <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+          className={`rounded-2xl p-5 border border-red-500/40 ${isDark ? 'bg-red-500/10' : 'bg-red-500/5'}`}>
+          <p className={`text-[11px] font-bold uppercase tracking-[1.2px] text-red-500 mb-2`}>
+            {L('Salud Crons · fallos', 'Cron Health · failures')}
+          </p>
+          <div className="space-y-1.5">
+            {cronHealth[0].failures.map((f, i) => (
+              <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
+                <span className="font-bold">{f.cron_path}</span>
+                <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>
+                  expected within: {f.expected_within_hours}h · observed: {f.observed_at || 'never'}
+                </span>
+                {f.detail ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>{f.detail}</span> : null}
               </div>
-              {failing && (
-                <button onClick={() => setCronHealthExpanded(s => !s)}
-                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${isDark ? 'border-red-400/40 text-red-300 hover:bg-red-500/10' : 'border-red-500/40 text-red-600 hover:bg-red-500/5'}`}>
-                  {cronHealthExpanded ? L('Ocultar', 'Hide') : L('Ver fallos', 'Show failures')}
-                </button>
-              )}
-            </div>
-            {failing && cronHealthExpanded && Array.isArray(latest.failures) && (
-              <div className="mt-3 space-y-1.5">
-                {latest.failures.map((f, i) => (
-                  <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
-                    <span className="font-bold">{f.cron_path}</span>
-                    <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>
-                      expected within: {f.expected_within_hours}h · observed: {f.observed_at || 'never'}
-                    </span>
-                    {f.detail ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>{f.detail}</span> : null}
-                  </div>
-                ))}
+            ))}
+          </div>
+        </motion.div>
+      )}
+      {flowDriftExpanded && flowDrift[0]?.failed_count > 0 && Array.isArray(flowDrift[0]?.failures) && (
+        <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+          className={`rounded-2xl p-5 border border-red-500/40 ${isDark ? 'bg-red-500/10' : 'bg-red-500/5'}`}>
+          <p className={`text-[11px] font-bold uppercase tracking-[1.2px] text-red-500 mb-2`}>
+            {L('Flow Drift · fallos', 'Flow Drift · failures')}
+          </p>
+          <div className="space-y-1.5">
+            {flowDrift[0].failures.map((f, i) => (
+              <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
+                <span className="font-bold">{f.scenario}</span>
+                {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 240)}</span> : null}
+                {f.observed ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>observed: {String(f.observed).slice(0, 240)}</span> : null}
               </div>
-            )}
-          </motion.div>
-        )
-      })()}
-
-      {/* Flow Drift — Layer 4 end-to-end user-action assertions. Catches the
-          queue.ticket_id NULL → markPaid silent-skip bug that hit prod 2026-05-17
-          and similar "UI claims success, DB never changed" regressions that the
-          first three layers cannot see. */}
-      {(() => {
-        const latest = flowDrift[0]
-        const failing = latest && latest.failed_count > 0
-        if (!latest) {
-          return (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              className={`rounded-2xl p-4 transition-colors ${cardBase} flex items-center justify-between`}>
-              <div className="flex items-center gap-3">
-                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
-                <p className={`text-[13px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
-                  {L('Flow Drift — sin datos aún (cron corre cada 15 min).', 'Flow Drift — no data yet (cron runs every 15 min).')}
-                </p>
-              </div>
-            </motion.div>
-          )
-        }
-        const ts = new Date(latest.ran_at)
-        const minsAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000))
-        const dotColor = failing ? 'bg-red-500' : 'bg-emerald-500'
-        const bgTone = failing
-          ? (isDark ? 'border-red-500/40 bg-red-500/10' : 'border-red-500/40 bg-red-500/5')
-          : ''
-        return (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-            className={`rounded-2xl p-5 transition-colors border ${cardBase} ${bgTone}`}>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${failing ? 'animate-pulse' : ''}`} />
-                <div>
-                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
-                    {failing
-                      ? L(`Flow Drift: ${latest.failed_count} escenario${latest.failed_count === 1 ? '' : 's'} fallido${latest.failed_count === 1 ? '' : 's'} de ${latest.total_count}`,
-                            `Flow Drift: ${latest.failed_count} scenario${latest.failed_count === 1 ? '' : 's'} failed of ${latest.total_count}`)
-                      : L(`Flow Drift: ${latest.passed_count}/${latest.total_count} OK`,
-                            `Flow Drift: ${latest.passed_count}/${latest.total_count} OK`)}
-                  </p>
-                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                    {L(`Hace ${minsAgo} min · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`,
-                       `${minsAgo}m ago · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`)}
-                  </p>
-                </div>
-              </div>
-              {failing && (
-                <button onClick={() => setFlowDriftExpanded(s => !s)}
-                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${isDark ? 'border-red-400/40 text-red-300 hover:bg-red-500/10' : 'border-red-500/40 text-red-600 hover:bg-red-500/5'}`}>
-                  {flowDriftExpanded ? L('Ocultar', 'Hide') : L('Ver fallos', 'Show failures')}
-                </button>
-              )}
-            </div>
-            {failing && flowDriftExpanded && Array.isArray(latest.failures) && (
-              <div className="mt-3 space-y-1.5">
-                {latest.failures.map((f, i) => (
-                  <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
-                    <span className="font-bold">{f.scenario}</span>
-                    {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 240)}</span> : null}
-                    {f.observed ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>observed: {String(f.observed).slice(0, 240)}</span> : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
-        )
-      })()}
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Mega Smoke — Layer 6 comprehensive drift + silent-bug net. 100+
           scenarios across infra, env, schema, RLS, per-vertical flows, mesas,

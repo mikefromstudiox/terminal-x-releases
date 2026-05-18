@@ -1144,7 +1144,37 @@ async function handleReportError(req, res) {
 
     const body = req.body || {}
     const trim = (s, n=8000) => typeof s === 'string' ? s.slice(0, n) : null
-    const businessId = typeof body.business_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.business_id) ? body.business_id : null
+    let businessId = typeof body.business_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.business_id) ? body.business_id : null
+
+    // 2026-05-18 — JWT cross-check (canonical per Hard Rule #20). If the
+    // request carries a Supabase access token AND the JWT's
+    // app_metadata.business_id disagrees with body.business_id, PREFER the
+    // JWT claim — the body is client-controlled and can be stale (e.g. a
+    // second tab clobbering localStorage). Many error reports fire pre-auth
+    // or from public routes with no token: in that case body.business_id is
+    // authoritative and we leave it as-is.
+    try {
+      const authHdr = req.headers?.authorization || req.headers?.Authorization || ''
+      const token = authHdr.startsWith('Bearer ') ? authHdr.slice(7) : null
+      if (token) {
+        const parts = token.split('.')
+        if (parts.length === 3) {
+          const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+          const pad = b64.length % 4 === 0 ? b64 : b64 + '='.repeat(4 - (b64.length % 4))
+          const payload = JSON.parse(Buffer.from(pad, 'base64').toString('utf8'))
+          const jwtBiz = payload?.app_metadata?.business_id
+          if (typeof jwtBiz === 'string' && /^[0-9a-f-]{36}$/i.test(jwtBiz)) {
+            if (businessId && businessId !== jwtBiz) {
+              console.warn('[report_error] body.business_id != jwt.business_id — preferred JWT', { body: businessId, jwt: jwtBiz })
+            }
+            businessId = jwtBiz
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal: malformed JWT just falls back to body.business_id.
+      console.warn('[report_error] jwt cross-check failed:', e?.message || e)
+    }
     const severity = ['error','warning','info','critical'].includes(body.severity) ? body.severity : 'error'
     const message = trim(body.message || 'unknown', 2000) || 'unknown'
     const stack = trim(body.stack, 8000)

@@ -242,7 +242,13 @@ function reportClientError(err, optsOrSeverity = 'error') {
     }
 
     const get = (k) => { try { return localStorage.getItem(k) || null } catch { return null } }
-    const businessId = get('tx_business_id')
+    // 2026-05-18 — prefer per-tab window.__txBusinessId (set by AuthContext from
+    // the JWT app_metadata claim) over localStorage 'tx_business_id'. localStorage
+    // is shared across tabs/domains; with two Terminal X sessions open it gets
+    // overwritten by the most-recent login and stamps errors with the WRONG
+    // business. The window var is tab-scoped memory and always reflects this
+    // tab's actual session. JWT claim is canonical per Hard Rule #20.
+    const businessId = (typeof window !== 'undefined' && window.__txBusinessId) || get('tx_business_id')
     const userId = get('tx_user_id')
     const userRole = get('tx_user_role')
     const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : null

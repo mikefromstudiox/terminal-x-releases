@@ -79,9 +79,28 @@ export function AuthProvider({ children }) {
           api?.settings?.get?.().catch(() => null),
         ])
         if (cancelled) return
-        const businessId   = empresa?.business_id || empresa?.id || empresa?.supabase_id || null
+        // 2026-05-18 — JWT app_metadata.business_id is the canonical claim
+        // (Hard Rule #20). Resolve from the live Supabase session FIRST so the
+        // per-tab window var always reflects THIS tab's session, never another
+        // tab's localStorage write. Empresa fallback covers desktop / pre-JWT.
+        let jwtBusinessId = null
+        try {
+          const sb = typeof window !== 'undefined' ? window.__txSupabase : null
+          const { data } = sb?.auth?.getSession ? await sb.auth.getSession() : { data: null }
+          jwtBusinessId = data?.session?.user?.app_metadata?.business_id || null
+        } catch {}
+        const businessId   = jwtBusinessId || empresa?.business_id || empresa?.id || empresa?.supabase_id || null
         const businessType = kv?.business_type || empresa?.business_type || null
         const vertical     = kv?.vertical || kv?.subtype || null
+        // Per-tab globals consumed by web/main.jsx reportClientError(). Window
+        // vars are per-tab memory and cannot be clobbered by another tab the
+        // way localStorage 'tx_business_id' can.
+        try {
+          if (typeof window !== 'undefined') {
+            if (businessId) window.__txBusinessId = businessId
+            if (businessType) window.__txBusinessType = businessType
+          }
+        } catch {}
         setSentryContext({ business: { id: businessId, type: businessType, vertical } })
       } catch {}
     })()
@@ -279,6 +298,11 @@ export function AuthProvider({ children }) {
     try {
       if (typeof window !== 'undefined') {
         window.__txSupabase = null
+        // Clear per-tab business attribution so any error fired after logout
+        // does NOT carry the dead session's business_id. See
+        // feedback_app_metadata_canonical_jwt_claim + report-error fix.
+        try { window.__txBusinessId = null } catch {}
+        try { window.__txBusinessType = null } catch {}
         // Also reset the module-scope cache in web/main.jsx so a subsequent
         // signInWithPassword (in the same SPA instance, e.g. if the hard
         // reload is suppressed) recreates a fresh createClient() instead of
