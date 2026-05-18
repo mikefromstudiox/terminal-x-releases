@@ -2057,7 +2057,7 @@ function MesasAddonCard() {
             target_name: 'tables_addon',
             new_value: `on (n=${count}, +${created})`,
           })
-        } catch {}
+        } catch (logErr) { try { window.__txReportError?.(logErr, { severity: 'warn', category: 'admin.tables_addon_toggle.activity_log' }) } catch {} }
       } else {
         try {
           await api?.activity?.record?.({
@@ -2067,7 +2067,7 @@ function MesasAddonCard() {
             target_name: 'tables_addon',
             new_value: 'off',
           })
-        } catch {}
+        } catch (logErr) { try { window.__txReportError?.(logErr, { severity: 'warn', category: 'admin.tables_addon_toggle.activity_log' }) } catch {} }
       }
       setSavedTick(true); setTimeout(() => setSavedTick(false), 1500)
     } catch (e) {
