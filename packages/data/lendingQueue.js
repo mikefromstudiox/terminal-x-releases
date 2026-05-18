@@ -266,7 +266,8 @@ export async function flushLendingQueue(supabase) {
           last_attempt_at: nowIso(),
         }
         if (updated.attempts >= MAX_ATTEMPTS) {
-          try { await db.add('dead', { ...updated, moved_at: nowIso() }) } catch {}
+          try { await db.add('dead', { ...updated, moved_at: nowIso() }) }
+          catch (deadErr) { try { (typeof window !== 'undefined') && window.__txReportError?.(deadErr, { severity: 'warn', category: 'lendingQueue.dead_letter_write_failed', extra: { row_id: row.id, attempts: updated.attempts } }) } catch {} }
           await db.delete('pending', row.id)
         } else {
           await db.put('pending', updated)
@@ -372,7 +373,8 @@ export async function flushPendingPhotos(supabase) {
         attempts: (row.attempts || 0) + 1,
         last_error: String(err?.message || err),
       }
-      try { await db.put('photos', updated) } catch {}
+      try { await db.put('photos', updated) }
+      catch (photoErr) { try { (typeof window !== 'undefined') && window.__txReportError?.(photoErr, { severity: 'warn', category: 'lendingQueue.photo_retry_write_failed', extra: { photo_id: row.id, attempts: updated.attempts } }) } catch {} }
       failed++
       if (isNetworkError(err)) break  // transport — stop, retry later
     }
@@ -390,8 +392,8 @@ export function startLendingQueueAutoFlush(supabase) {
   if (typeof window === 'undefined') return
   const tick = () => {
     if (navigator.onLine) {
-      flushLendingQueue(supabase).catch(() => {})
-      flushPendingPhotos(supabase).catch(() => {})
+      flushLendingQueue(supabase).catch((err) => { try { window.__txReportError?.(err, { severity: 'warn', category: 'lendingQueue.autoflush_failed' }) } catch {} })
+      flushPendingPhotos(supabase).catch((err) => { try { window.__txReportError?.(err, { severity: 'warn', category: 'lendingQueue.photoflush_failed' }) } catch {} })
     }
   }
   _onOnline = tick

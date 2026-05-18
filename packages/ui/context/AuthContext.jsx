@@ -75,8 +75,8 @@ export function AuthProvider({ children }) {
     ;(async () => {
       try {
         const [empresa, kv] = await Promise.all([
-          api?.admin?.getEmpresa?.().catch(() => null),
-          api?.settings?.get?.().catch(() => null),
+          api?.admin?.getEmpresa?.().catch((err) => { try { window.__txReportError?.(err, { severity: 'warn', category: 'auth.getEmpresa.sentry_context' }) } catch {} ; return null }),
+          api?.settings?.get?.().catch((err) => { try { window.__txReportError?.(err, { severity: 'warn', category: 'auth.settingsGet.sentry_context' }) } catch {} ; return null }),
         ])
         if (cancelled) return
         // 2026-05-18 — JWT app_metadata.business_id is the canonical claim
