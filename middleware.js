@@ -972,6 +972,11 @@ function buildWebSiteSchema(pathname) {
   };
 }
 
+// Routes where the homepage hero-image preload (desktop-pos.png) is actually
+// rendered as the LCP. Everywhere else, strip the preload tag to recover
+// ~93 KiB of wasted bandwidth on each pageload — measured 2026-05-18.
+const HERO_PRELOAD_ROUTES = new Set(['/', '/en', '/en/']);
+
 function injectRouteMeta(html, pathname, meta) {
   const pair = getLanguagePair(pathname) || { es: pathname, en: pathname };
   const lang = meta.lang || 'es';
@@ -1091,6 +1096,19 @@ export default async function middleware(request) {
   let injected = body.split('__CSP_NONCE__').join(nonce);
 
   const url = new URL(request.url);
+
+  // Strip the homepage hero-image preload on every non-home route — saves
+  // ~93 KiB of wasted bandwidth per pageload on /signup, /industrias/*,
+  // /blog/*, etc. where desktop-pos.png is never rendered. Runs before
+  // injectRouteMeta so it fires for ALL non-home routes, even those without
+  // route meta entries. (CWV: bandwidth + LCP win on inner pages, 2026-05-18.)
+  if (!HERO_PRELOAD_ROUTES.has(url.pathname)) {
+    injected = injected.replace(
+      /<!--TX_HERO_PRELOAD_START-->[\s\S]*?<!--TX_HERO_PRELOAD_END-->/,
+      '',
+    );
+  }
+
   const meta = lookupRouteMeta(url.pathname);
   if (meta) {
     injected = injectRouteMeta(injected, url.pathname, meta);

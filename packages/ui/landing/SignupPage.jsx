@@ -420,8 +420,8 @@ export default function SignupPage({ supabase, forceLang }) {
            L('Siguiente', 'Next')}
         </button>
 
-        <p className="text-center text-xs text-slate-500">
-          {L('Ya tienes cuenta?', 'Already have an account?')} <a href="/pos" className="text-[#b3001e] hover:text-[#cc1a33]">{L('Iniciar sesion', 'Log in')}</a>
+        <p className="text-center text-xs text-slate-400">
+          {L('Ya tienes cuenta?', 'Already have an account?')} <a href="/pos" className="text-[#b3001e] hover:text-[#cc1a33] underline underline-offset-2 decoration-1">{L('Iniciar sesion', 'Log in')}</a>
         </p>
       </form>
     </div>

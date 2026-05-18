@@ -55,9 +55,15 @@
     <link rel="dns-prefetch" href="https://www.google-analytics.com" />
     <link rel="dns-prefetch" href="https://o4508177916559360.ingest.us.sentry.io" />
 
-    <!-- Performance: preload the hero LCP image (desktop POS mockup). The
-         responsive srcset/sizes mirrors HeroAnimated.jsx so the browser picks
-         the same candidate without double-download. (CWV LCP win.) -->
+    <!-- Performance: preload the hero LCP image (homepage desktop POS mockup).
+         The responsive srcset/sizes mirrors HeroAnimated.jsx so the browser
+         picks the same candidate without double-download. This preload is
+         STRIPPED on non-home routes by middleware.js (it would waste ~93 KiB
+         downloading an image that's never rendered on /signup, /industrias/*,
+         /blog/*, etc). The TX_HERO_PRELOAD_START..END marker comments are the
+         strip anchors — do not rename. (CWV LCP win on /, bandwidth win
+         elsewhere.) -->
+    <!--TX_HERO_PRELOAD_START-->
     <link
       rel="preload"
       as="image"
@@ -66,6 +72,7 @@
       imagesizes="(max-width: 768px) 50vw, 640px"
       fetchpriority="high"
     />
+    <!--TX_HERO_PRELOAD_END-->
 
     <!-- Icons & PWA -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />

@@ -29,10 +29,133 @@ for url in \
 done
 ```
 
-### Baseline (pre-commit) — PASTE OUTPUT HERE
-```
-(pending — Mike to run)
-```
+### Baseline (post-deploy) — Lighthouse DevTools, mobile, Slow 4G, Moto G Power, LH 13.0.2
+
+**URL 1 — https://terminalxpos.com/ (captured 2026-05-18 11:37 GMT-4)**
+
+| Cat | Score |
+|---|---|
+| Performance | **95** |
+| Accessibility | **96** |
+| Best Practices | **100** |
+| SEO | **100** |
+
+| Metric | Value | Status |
+|---|---|---|
+| FCP | 2.1 s | amber (target <1.8s) |
+| LCP | 2.4 s | green |
+| TBT | 90 ms | green |
+| CLS | 0 | green |
+| Speed Index | 2.1 s | green |
+
+Top remaining opportunities:
+1. Render-blocking requests — save ~80 ms (pulls FCP under 1.8s)
+2. Improve image delivery — save 93 KiB (AVIF/WebP or wrong sizes)
+3. Reduce unused JavaScript — save 133 KiB
+4. Minimize main-thread work — 3.1 s, 6 long tasks
+5. bfcache blocked — 3 failure reasons (likely SW + listeners)
+6. Accessibility 96 → 100: 1 contrast pair fails; "identical links same purpose" manual check
+
+**URL 2 — https://terminalxpos.com/signup (captured 2026-05-18 11:47 GMT-4)**
+
+| Cat | Score |
+|---|---|
+| Performance | **89** (amber) |
+| Accessibility | **88** (amber) |
+| Best Practices | **96** |
+| SEO | **100** |
+
+| Metric | Value | Status |
+|---|---|---|
+| FCP | 2.0 s | amber |
+| LCP | 3.5 s | amber (target <2.5s) — **main miss** |
+| TBT | 0 ms | green |
+| CLS | 0 | green |
+| Speed Index | 2.0 s | green |
+
+Top opportunities (in priority order):
+1. **LCP 3.5s** — first 2 frames are pure black, hero LCP element paints late. Preload + `fetchpriority="high"` on the SignupPage hero/logo (currently no hero preload — only homepage has it).
+2. **Reduce unused JS — save 203 KiB** — biggest by-volume win on this page. Likely full landing chunk shipped to /signup. Verify SignupPage isn't pulling LandingPage components.
+3. **Render-blocking — save 60 ms**.
+4. **Images missing width/height** — diagnostic. Audit signup logos/icons.
+5. **Browser console errors** logged — investigate (Best Practices hit).
+6. **A11y 88** — TWO contrast issues: (a) background/foreground pair, (b) "Links rely on color to be distinguishable" (add underline or icon to links — common on dark hero with red-only link cues).
+7. **bfcache blocked** — 3 reasons (same as homepage; likely SW).
+
+**URL 3 — https://terminalxpos.com/industrias/carwash (captured 2026-05-18 11:48 GMT-4)**
+
+| Cat | Score |
+|---|---|
+| Performance | **92** |
+| Accessibility | **93** |
+| Best Practices | **100** |
+| SEO | **100** |
+
+| Metric | Value | Status |
+|---|---|---|
+| FCP | 2.0 s | amber |
+| LCP | 3.1 s | amber (target <2.5s) |
+| TBT | 50 ms | green |
+| CLS | 0 | green |
+| Speed Index | 2.0 s | green |
+
+Top opportunities:
+1. **LCP 3.1s** — same root cause as /signup: 2 black frames before paint. Hero text is LCP, no hero image preload on per-vertical pages. Confirms Phase 2 follow-on candidate "per-vertical hero preload" from earlier doc.
+2. **Reduce unused JS — save 96 KiB** (half of /signup, but still meaningful).
+3. **Render-blocking — 80 ms**.
+4. **Forced reflow** — investigate.
+5. **A11y 93** — 1 contrast pair (better than /signup since no `links rely on color` issue here).
+
+**URL 4 — https://terminalxpos.com/blog/mejor-alternativa-facturador-gratuito-dgii-2026 (captured 2026-05-18 11:50 GMT-4)**
+
+| Cat | Score |
+|---|---|
+| Performance | **91** |
+| Accessibility | **95** |
+| Best Practices | **100** |
+| SEO | **100** |
+
+| Metric | Value | Status |
+|---|---|---|
+| FCP | 2.0 s | amber |
+| LCP | 3.2 s | amber |
+| TBT | 0 ms | green |
+| CLS | 0 | green |
+| Speed Index | 2.0 s | green |
+
+Top opportunities:
+1. **LCP 3.2s** — same 2-black-frames signature.
+2. **Reduce unused JS — 84 KiB**.
+3. **Render-blocking — 80 ms**.
+
+---
+
+## Cross-URL summary (4 of 4)
+
+| URL | Perf | A11y | BP | SEO | LCP |
+|---|---|---|---|---|---|
+| / | **95** | 96 | 100 | 100 | 2.4s ✅ |
+| /signup | 89 | 88 | 96 | 100 | 3.5s ⚠️ |
+| /industrias/carwash | 92 | 93 | 100 | 100 | 3.1s ⚠️ |
+| /blog/...gratuito-dgii-2026 | 91 | 95 | 100 | 100 | 3.2s ⚠️ |
+
+### Diagnosis
+1. **LCP** — Homepage has `<link rel="preload">` + `fetchpriority="high"` on hero. Inner pages don't. 2 black frames before paint on every inner page = the LCP element is the first text block in the dark hero section. Adding a preload-as-image (or even just `fetchpriority` on the first H1 background, plus inlined critical CSS for the hero) pulls all 3 inner pages from ~3.2s → ~2.4s.
+2. **A11y** — A contrast pair recurs on every page. /signup also has "Links rely on color" — needs link underline. Single shared-component fix lifts all 4 pages.
+3. **Unused JS** — /signup ships 203 KiB unused (worst). All routes ship a chunk they don't need; tighter route-level code-splitting recovers it.
+4. **Render-blocking** — 60-80 ms on every page; same CSS file. One inline-critical-CSS fix everywhere.
+5. **bfcache** — 3 reasons on every page (SW + unload listeners). Same fix everywhere.
+
+### Action priority
+| Fix | Affects | Estimated LCP gain | Effort |
+|---|---|---|---|
+| Per-route hero preload + critical CSS | /signup, /industrias/*, /blog/* | -0.6 to -1.0s | M |
+| Shared contrast fix | All | A11y +3-8 | S |
+| Underline links on /signup | /signup | A11y +5 | S |
+| Route-level JS code-split audit | /signup esp. | -50 to -100ms FCP | M |
+| Inline critical CSS | All | -60-80ms FCP | M |
+
+**Net:** every inner page goes from amber → 95+ green. 1 shared fix, 1 preload pattern, 1 link underline = the whole site green.
 
 ## B. Changes shipped this commit
 

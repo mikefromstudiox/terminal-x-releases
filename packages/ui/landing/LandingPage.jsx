@@ -1511,7 +1511,7 @@ export default function LandingPage({ section, forceLang }) {
           </div>
           <div className="border-t border-white/10 mt-12 pt-8 text-center">
             <p className="text-xs text-white/50">&copy; {new Date().getFullYear()} Terminal X SRL. {L('Todos los derechos reservados.', 'All rights reserved.')}</p>
-            <p className="text-[10px] text-white/30 mt-3">
+            <p className="text-[10px] text-white/55 mt-3">
               <a
                 href="https://github.com/mikefromstudiox/terminal-x-releases/releases/latest"
                 target="_blank"
