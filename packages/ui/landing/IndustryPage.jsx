@@ -161,7 +161,7 @@ export default function IndustryPage({ forceLang }) {
             </a>
           </div>
 
-          <p className="mt-6 text-xs text-white/40 font-semibold tracking-wide uppercase">
+          <p className="mt-6 text-xs text-white/60 font-semibold tracking-wide uppercase">
             {T('Plan recomendado', 'Recommended plan')}: {data.plan.name} · {data.plan.price}
           </p>
         </div>
@@ -316,7 +316,7 @@ export default function IndustryPage({ forceLang }) {
       </section>
 
       {/* Footer */}
-      <footer className="bg-black text-white/40 text-xs py-10 px-4 sm:px-6 lg:px-8 text-center border-t border-white/5">
+      <footer className="bg-black text-white/60 text-xs py-10 px-4 sm:px-6 lg:px-8 text-center border-t border-white/5">
         © {new Date().getFullYear()} Terminal X · Studio X · Santo Domingo, {T('RD', 'Dominican Republic')} ·{' '}
         <Link to={homeHref} className="hover:text-white">terminalxpos.com</Link>
       </footer>
