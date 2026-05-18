@@ -311,8 +311,12 @@ export default function AdminApp({ supabase }) {
     // scrolls inside its own `flex-1 overflow-y-auto`. Mobile uses flex-col so
     // the sticky top bar still gets its full row and content below scrolls.
     <div className={`h-screen flex flex-col md:flex-row ${theme.isDark ? 'bg-black' : 'bg-white'}`}>
-      {/* Desktop Sidebar — always black */}
-      <div className="hidden md:flex w-[260px] flex-col shrink-0 border-r bg-black border-white/10 relative">
+      {/* Desktop Sidebar — always black. `h-screen overflow-hidden` enforces
+          the viewport cap so the nav (below) can scroll INSIDE its flex-1
+          space without pushing the bottom panel off-screen. (Without this,
+          h-screen on the outer wasn't enough — flex-1 on nav still let the
+          nav grow past viewport.) */}
+      <div className="hidden md:flex w-[260px] flex-col shrink-0 border-r bg-black border-white/10 relative h-screen overflow-hidden">
         {/* Subtle ambient red glow top-left of sidebar */}
         <div className="absolute top-0 left-0 w-56 h-56 bg-[#b3001e]/10 blur-[80px] pointer-events-none" />
 
@@ -326,7 +330,7 @@ export default function AdminApp({ supabase }) {
           </div>
         </div>
 
-        <nav className="relative flex-1 py-5 px-3 space-y-1">
+        <nav className="relative flex-1 overflow-y-auto py-5 px-3 space-y-1 min-h-0">
           {NAV.map((n, i) => {
             const active = location.pathname === n.path || (n.path !== '/admin' && location.pathname.startsWith(n.path))
             return (
