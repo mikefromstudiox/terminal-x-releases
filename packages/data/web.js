@@ -3260,6 +3260,16 @@ export function createWebAPI(supabase, businessId) {
                   if (seq && Number(seq.current_number) === num) {
                     await supabase.from('ncf_sequences').update({ current_number: num - 1 })
                       .eq('business_id', bid).eq('type', seq.type)
+                    // 2026-05-18 fix (cobro cascade): release the NCF from the
+                    // voided ticket so the next allocation can reuse the number
+                    // without hitting uq_tickets_biz_ncf. Audit trail is preserved
+                    // via the ticket_voided activity_log row above (which captures
+                    // the original NCF in metadata) — the row itself stays as
+                    // status='nula' for sales-history visibility, just without
+                    // the NCF claim that conflicts on the next allocation.
+                    await supabase.from('tickets')
+                      .update({ ncf: null, ncf_type: null })
+                      .eq('id', id).eq('business_id', bid)
                   }
                 } else if (isEcf) {
                   // e-CF: insert (idempotent) into anecf_queue; UNIQUE(business_id,ncf).
