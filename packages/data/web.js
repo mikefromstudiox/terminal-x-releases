@@ -4837,7 +4837,9 @@ export function createWebAPI(supabase, businessId) {
           denominaciones: typeof data.denominaciones === 'string' ? data.denominaciones : JSON.stringify(data.denominaciones || {}),
         }).select('id').single())
         const diff = Number(data.diferencia || 0)
-        if (Math.abs(diff) > 50) {
+        // 2026-05-18 followup #9 — threshold inclusive (>=50) so RD$50 diff logs;
+        // metadata expanded to include fondo so auditor can reconstruct expected_cash.
+        if (Math.abs(diff) >= 50) {
           await logActivity({ event_type: 'cuadre_discrepancy',
             severity: Math.abs(diff) >= 500 ? 'critical' : 'warn',
             target_type: 'cuadre_caja', target_id: row?.id || null,
@@ -4846,7 +4848,12 @@ export function createWebAPI(supabase, businessId) {
             old_value: String(data.efectivo_sistema || 0),
             new_value: String(data.efectivo_conteo || 0),
             reason: data.comentario || (diff > 0 ? 'Sobrante' : 'Faltante'),
-            metadata: { cierre_total: data.cierre_total, total_cobrado: data.total_cobrado } })
+            metadata: {
+              cierre_total: data.cierre_total,
+              total_cobrado: data.total_cobrado,
+              fondo: data.fondo || 0,
+              cuadre_id: row?.id || null,
+            } })
         }
         return row
       }, 'web.cuadre.create'),
