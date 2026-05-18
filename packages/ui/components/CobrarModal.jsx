@@ -1313,19 +1313,27 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         // NCF allocator MUST be atomic — the in-memory fallback this used to
         // have produced duplicate NCFs across two terminals (Ranoza dual-POS
         // concurrency audit, 2026-05-08). If the RPC errors, surface it to the
-        // cashier and abort the sale; never mint locally.
+        // cashier via the ecfError banner and abort the sale; never mint
+        // locally. (2026-05-17 — switched from bare throw to setEcfState/
+        // setEcfError so the failure is VISIBLE — bare throws were caught by
+        // React's async-handler boundary and silently swallowed; cashier just
+        // saw the green Cobrar button stay green with no feedback.)
         try {
           eNCF = await api?.ncf?.next?.(ncfType)
         } catch (err) {
           try { window.__txReportError?.(err, { severity: 'critical', category: 'cobro.ncf.reserve.legacy', extra: { ncfType } }) } catch {}
-          throw new Error(lang === 'es'
-            ? `No se pudo reservar el NCF ${ncfType}. Intenta de nuevo. (${err?.message || err})`
-            : `Could not reserve NCF ${ncfType}. Retry. (${err?.message || err})`)
+          setEcfState('error')
+          setEcfError(lang === 'es'
+            ? `No se pudo reservar el NCF ${ncfType}. ${err?.message || err}`
+            : `Could not reserve NCF ${ncfType}. ${err?.message || err}`)
+          return
         }
         if (!eNCF) {
-          throw new Error(lang === 'es'
+          setEcfState('error')
+          setEcfError(lang === 'es'
             ? `No se pudo reservar el NCF ${ncfType}. Intenta de nuevo.`
             : `Could not reserve NCF ${ncfType}. Retry.`)
+          return
         }
       }
       const legacyResult = {
