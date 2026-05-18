@@ -2589,12 +2589,19 @@ async function handleSetStaffPin(req, res) {
   if (pin.length < 4 || pin.length > 6) return res.status(400).json({ error: 'PIN must be 4-6 digits' })
   if (!/^\d+$/.test(pin)) return res.status(400).json({ error: 'PIN must be digits only' })
   try {
-    const pin_salt = crypto.randomBytes(24).toString('base64')
-    const pin_hash = bcryptjs.hashSync(String(pin) + pin_salt, 10)
+    // 2026-05-18 — Removed `+ pin_salt` salt-append from bcrypt input.
+    // bcrypt already includes its own per-hash salt internally; appending
+    // an external `pin_salt` produced hashes the desktop verifier could
+    // not match (desktop calls `bcrypt.compare(typedPin, pin_hash)` with
+    // no salt-append). Bug surfaced 2026-05-18 onboarding Ranoza as the
+    // first paying client: admin-set PINs failed verification on her
+    // fresh desktop install. We also clear pin_salt to NULL so any
+    // future verifier that might inspect it stays consistent.
+    const pin_hash = bcryptjs.hashSync(String(pin), 10)
     const { error } = await auth.supabase.from('staff').update({
       pin_hash,
       pin_hash_algo: 'bcrypt',
-      pin_salt,
+      pin_salt: null,
       pin_failed_attempts: 0,
       pin_locked_until: null,
     }).eq('id', staff_id)
