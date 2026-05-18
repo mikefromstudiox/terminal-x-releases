@@ -1,26 +1,18 @@
 ; build/installer.nsh — Terminal X NSIS install customizations
 ;
-; v2.17.8 (2026-05-18) — one-time clean-install of local SQLCipher DB.
+; v2.17.9 (2026-05-18) — empty.
 ;
-; Wipes %APPDATA%\TerminalX on install so the app boots fresh and runs
-; the current provisioning flow (license validation → business binding
-; via cloud → fresh local DB encrypted to the correct business_id).
+; v2.17.8 shipped with a customInit that wiped %APPDATA%\TerminalX on
+; install for Ranoza's first-client onboarding. Two issues:
+;   1. The Electron userData folder is %APPDATA%\Terminal X (with a
+;      space), not %APPDATA%\TerminalX — the wipe targeted a folder
+;      that didn't exist and was a no-op.
+;   2. Even if it worked, it would wipe local data for ANY user who
+;      downloads Setup.exe directly (vs auto-updating via electron-
+;      updater which doesn't re-run NSIS scripts). That's a foot-gun.
 ;
-; Why this exists right now: Ranoza is the first paying desktop client,
-; and an earlier install path (pre-v2.17.8) bound her local DB to a
-; ghost business created from a typo-email signup. Auto-update via
-; electron-updater does NOT trigger NSIS scripts — only running this
-; Setup.exe directly does — so this is safe for users on auto-update.
-;
-; Cloud (Supabase) state is untouched. All inventory, services, NCF
-; sequences, staff, etc. resync down on next login. Worst-case loss
-; is offline-queued tickets that haven't synced — accepted because
-; we have zero non-Ranoza desktop installs today.
-;
-; Remove this macro (or gate it behind a CLI flag) once we ship the
-; in-app "Reset Local DB" Settings button in a future release.
+; For future "stuck client" recovery: use the in-app Reset Local DB
+; flow (queued for a later release) or manual %APPDATA%\Terminal X
+; folder delete via AnyDesk/support session.
 
-!macro customInit
-  DetailPrint "Resetting Terminal X local data..."
-  RMDir /r "$APPDATA\TerminalX"
-!macroend
+; No customInit — let NSIS run its default install flow.
