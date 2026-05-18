@@ -138,12 +138,13 @@ function buildVirginSchemaModel() {
       if (ch === '[') depth++
       else if (ch === ']') { depth--; if (depth === 0) { end = i; break } }
     }
+    let migBlock = ''
     if (end >= 0) {
-      const block = dbJs.slice(migStart, end + 1)
+      migBlock = dbJs.slice(migStart, end + 1)
       // Extract each SQL string (single/double/backtick quoted)
       const re = /(?:'([^']*(?:\\.[^']*)*)'|"([^"]*(?:\\.[^"]*)*)"|`([^`]*(?:\\.[^`]*)*)`)/g
       let m
-      while ((m = re.exec(block))) {
+      while ((m = re.exec(migBlock))) {
         const s = m[1] ?? m[2] ?? m[3]
         if (!s || !/^\s*(ALTER|CREATE|UPDATE|INSERT|DROP)\s/i.test(s)) continue
         applySql(s)
@@ -172,6 +173,56 @@ function buildVirginSchemaModel() {
       const strs = [...body.matchAll(/"([^"]+)"/g)].map(x => x[1])
       for (const s of strs) applySql(s)
     }
+    // Standalone try { db.exec(`ALTER TABLE ...`) } patterns — used for
+    // template-string ALTERs that aren't in the migrations array (e.g. the
+    // accounting_* loop at line 2477 that adds accounting_client_supabase_id
+    // to every accounting table dynamically via template literal).
+    const tryRe = /try\s*\{\s*db\.exec\s*\(\s*`([^`]+)`\s*\)\s*\}\s*catch/g
+    let tm
+    while ((tm = tryRe.exec(postMig))) {
+      applySql(tm[1])
+    }
+    // Same with single/double quotes
+    const tryRe2 = /try\s*\{\s*db\.exec\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\}\s*catch/g
+    let tm3
+    while ((tm3 = tryRe2.exec(postMig))) {
+      applySql(tm3[1])
+    }
+    // Template-literal ALTER TABLE inside for-loops, e.g. the accounting loop.
+    // Pattern: for (...) { try { db.exec(`ALTER TABLE ${t} ADD COLUMN ...`) }
+    // We resolve `${t}` against any const x = [...] array immediately above.
+    const loopRe = /for\s*\(\s*const\s+(\w+)\s+of\s+(\w+)\s*\)\s*\{[\s\S]*?try\s*\{\s*db\.exec\s*\(\s*`([^`]+)`\s*\)\s*\}/g
+    let lm
+    while ((lm = loopRe.exec(postMig))) {
+      const loopVar = lm[1]
+      const listName = lm[2]
+      const tmpl = lm[3]
+      // Find the list definition
+      const listRe = new RegExp(`const\\s+${listName}\\s*=\\s*\\[([^\\]]+)\\]`)
+      const listMatch = postMig.match(listRe)
+      if (!listMatch) continue
+      const items = [...listMatch[1].matchAll(/'([^']+)'/g)].map(x => x[1])
+      for (const it of items) {
+        const sql = tmpl.replace(new RegExp('\\$\\{' + loopVar + '\\}', 'g'), it)
+        applySql(sql)
+      }
+    }
+
+    // Step 4: v2.17.12 architectural fix — re-run the migrations array AFTER all
+    // CREATE TABLEs are processed. Mirrors the runtime second-pass we added in
+    // electron/database.js around line 3977. Without this the audit reports
+    // false positives for every column that's added via ALTER TABLE for a
+    // late-CREATE'd table (empleados, inventory_items, cajero_commissions,
+    // payroll_runs, salary_changes, memberships, etc.).
+    if (migBlock) {
+      const re2 = /(?:'([^']*(?:\\.[^']*)*)'|"([^"]*(?:\\.[^"]*)*)"|`([^`]*(?:\\.[^`]*)*)`)/g
+      let mm
+      while ((mm = re2.exec(migBlock))) {
+        const s = mm[1] ?? mm[2] ?? mm[3]
+        if (!s || !/^\s*(ALTER|CREATE|UPDATE|INSERT|DROP)\s/i.test(s)) continue
+        applySql(s)
+      }
+    }
   }
 
   return model
@@ -190,17 +241,60 @@ function loadPullTables() {
     else if (ch === ']') { depth--; if (depth === 0) { endIdx = i; break } }
   }
   const block = syncJs.slice(startIdx, endIdx + 1)
+
+  // Depth-tracking split: each top-level `{ ... }` inside the array is one
+  // descriptor. We respect nested braces so fkCols: { ... } stays inside its
+  // parent descriptor instead of closing it.
   const descriptors = []
-  const re = /\{\s*name:\s*'([^']+)'(?:[\s\S]*?supabaseTable:\s*'([^']+)')?[\s\S]*?cols:\s*\[([^\]]*)\][\s\S]*?(?:fkCols:\s*\{([^}]*)\})?[\s\S]*?\}/g
-  let m
-  while ((m = re.exec(block))) {
-    const name = m[1]
-    const supabaseTable = m[2] || name
-    const colsRaw = m[3] || ''
-    const fkColsRaw = m[4] || ''
-    const cols = [...colsRaw.matchAll(/'([^']+)'/g)].map(x => x[1])
-    const fkCols = [...fkColsRaw.matchAll(/(\w+_supabase_id)\s*:\s*'([^']+)'/g)].map(x => ({ fk: x[1], ref: x[2] }))
-    descriptors.push({ name, supabaseTable, cols, fkCols })
+  let depthBrace = 0, descStart = -1
+  for (let i = 0; i < block.length; i++) {
+    const ch = block[i]
+    if (ch === '{') {
+      if (depthBrace === 0) descStart = i
+      depthBrace++
+    } else if (ch === '}') {
+      depthBrace--
+      if (depthBrace === 0 && descStart >= 0) {
+        const text = block.slice(descStart, i + 1)
+        const nameMatch = text.match(/name:\s*'([^']+)'/)
+        if (!nameMatch) { descStart = -1; continue }
+        const name = nameMatch[1]
+        const supMatch = text.match(/supabaseTable:\s*'([^']+)'/)
+        const supabaseTable = supMatch ? supMatch[1] : name
+
+        // cols: depth-tracked extraction of the `[...]` after `cols:`
+        let cols = []
+        const colsIdx = text.indexOf('cols:')
+        if (colsIdx >= 0) {
+          let bracketDepth = 0, colsStart = -1, colsEnd = -1
+          for (let j = colsIdx; j < text.length; j++) {
+            if (text[j] === '[') { if (bracketDepth === 0) colsStart = j + 1; bracketDepth++ }
+            else if (text[j] === ']') { bracketDepth--; if (bracketDepth === 0) { colsEnd = j; break } }
+          }
+          if (colsStart >= 0 && colsEnd > colsStart) {
+            cols = [...text.slice(colsStart, colsEnd).matchAll(/'([^']+)'/g)].map(x => x[1])
+          }
+        }
+
+        // fkCols: depth-tracked extraction of the `{...}` after `fkCols:`
+        let fkCols = []
+        const fkIdx = text.indexOf('fkCols:')
+        if (fkIdx >= 0) {
+          let braceDepth = 0, fkStart = -1, fkEnd = -1
+          for (let j = fkIdx; j < text.length; j++) {
+            if (text[j] === '{') { if (braceDepth === 0) fkStart = j + 1; braceDepth++ }
+            else if (text[j] === '}') { braceDepth--; if (braceDepth === 0) { fkEnd = j; break } }
+          }
+          if (fkStart >= 0 && fkEnd > fkStart) {
+            const body = text.slice(fkStart, fkEnd)
+            fkCols = [...body.matchAll(/(\w+_supabase_id)\s*:\s*'([^']+)'/g)].map(x => ({ fk: x[1], ref: x[2] }))
+          }
+        }
+
+        descriptors.push({ name, supabaseTable, cols, fkCols })
+        descStart = -1
+      }
+    }
   }
   return descriptors
 }

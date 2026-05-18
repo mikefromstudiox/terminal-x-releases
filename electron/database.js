@@ -3962,6 +3962,46 @@ function init(userDataPath, options = {}) {
     }
   }
 
+  // v2.17.12 (2026-05-18) — Architectural fix for the "late-CREATE
+  // schema-drift" bug class that bit us 4× tonight onboarding Ranoza
+  // (empleados, inventory_items, oferta_items, notas_credito).
+  //
+  // Root cause: the main `migrations` array at line ~310 runs at line
+  // ~2058, BEFORE many tables are CREATE'd later in this init function
+  // (empleados ~3077, inventory_items ~3050, plus dozens of vertical-
+  // specific tables). So every `ALTER TABLE <late_table> ADD COLUMN ...`
+  // in the migrations array silently fails with "no such table" on a
+  // fresh install. Existing installs got the columns because the table
+  // existed from a prior version when the migration first ran.
+  //
+  // Fix: re-run the migrations array here, AFTER all CREATE TABLE
+  // statements have executed. Idempotent — every ALTER TABLE that
+  // already succeeded throws "duplicate column" which our existing
+  // catch silently ignores. ALTERs that previously failed against
+  // missing tables now succeed against newly-created ones.
+  //
+  // Catches every bug surfaced by scripts/fresh-install-schema-audit.mjs
+  // (cajero_commissions.updated_at, inventory_transactions.updated_at,
+  // compras_607.updated_at, payroll_runs.updated_at, memberships fields,
+  // accounting_* tables, etc.) without one-off post-CREATE blocks.
+  //
+  // SAFETY: only ALTER/CREATE INDEX/CREATE TRIGGER/INSERT-OR-IGNORE
+  // statements. UPDATE statements re-run are gated by WHERE clauses
+  // (col IS NULL) so they're already idempotent.
+  for (const sql of migrations) {
+    try { db.exec(sql) } catch (e) {
+      const m = e.message || ''
+      if (
+        !m.includes('duplicate column') &&
+        !m.includes('no such table') &&
+        !m.includes('already exists') &&
+        !m.includes('UNIQUE constraint failed')
+      ) {
+        console.warn('[db] second-pass migration warning:', sql.slice(0, 80), '—', m)
+      }
+    }
+  }
+
   // Seed if empty — DEV ONLY (skip in packaged production builds)
   const isProd = typeof process !== 'undefined' && process.resourcesPath && !process.defaultApp
   const userCount = db.prepare('SELECT COUNT(*) as n FROM users').get()
