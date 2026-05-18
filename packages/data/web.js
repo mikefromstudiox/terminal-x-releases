@@ -3041,13 +3041,26 @@ export function createWebAPI(supabase, businessId) {
                   }))
                 if (rpcItems.length) {
                   try {
-                    await supabase.rpc('deduct_inventory_atomic', {
+                    const rpcRes = await supabase.rpc('deduct_inventory_atomic', {
                       p_business_id:        bid,
                       p_ticket_supabase_id: ticketSid,
                       p_hwid:               'web',
                       p_items:              rpcItems,
                     })
-                  } catch (e) { console.error('[web.js] deduct_inventory_atomic failed:', e.message) }
+                    // 2026-05-18 Fix S — surface RPC errors + oversells. Previously
+                    // the catch swallowed network failures; the RPC always returns
+                    // {ok:false, error} on caught errors so we now check the payload too.
+                    if (rpcRes?.data && rpcRes.data.ok === false) {
+                      const err = new Error(`deduct_inventory_atomic returned ok=false: ${rpcRes.data.error || 'unknown'}`)
+                      try { window.__txReportError?.(err, { severity: 'error', category: 'web.tickets.deduct_inventory_atomic', extra: { ticket_supabase_id: ticketSid, item_count: rpcItems.length } }) } catch {}
+                    } else if (rpcRes?.data?.oversells?.length) {
+                      // Oversells are logged but not blocking; alert admin.
+                      try { window.__txReportError?.(new Error(`oversells: ${rpcRes.data.oversells.length} item(s)`), { severity: 'warn', category: 'web.tickets.oversell', extra: { oversells: rpcRes.data.oversells } }) } catch {}
+                    }
+                  } catch (e) {
+                    console.error('[web.js] deduct_inventory_atomic failed:', e.message)
+                    try { window.__txReportError?.(e, { severity: 'error', category: 'web.tickets.deduct_inventory_atomic', extra: { ticket_supabase_id: ticketSid, item_count: rpcItems.length } }) } catch {}
+                  }
                 }
               }
             }
