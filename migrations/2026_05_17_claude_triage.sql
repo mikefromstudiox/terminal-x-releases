@@ -39,6 +39,23 @@ BEGIN
   END IF;
 END $$;
 
+-- 2026-05-17 (Layer 5 follow-up) — the existing CHECK constraint on
+-- client_errors.severity allowed only ('error','warning','info') but the
+-- application code in /api/panel.js (handleReportError) and Layer 3
+-- (cron_health_verifier) both write severity='critical'. Those writes were
+-- silently violating the constraint and being eaten by try/catch — so
+-- "critical" rows never actually landed in prod. This expands the constraint
+-- without dropping any value already in use.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'client_errors_severity_check') THEN
+    ALTER TABLE public.client_errors DROP CONSTRAINT client_errors_severity_check;
+  END IF;
+  ALTER TABLE public.client_errors
+    ADD CONSTRAINT client_errors_severity_check
+    CHECK (severity = ANY (ARRAY['info'::text, 'warning'::text, 'error'::text, 'critical'::text]));
+END $$;
+
 -- For fast lookup of un-triaged critical client_errors. Predicate uses jsonb
 -- key check so we can re-diagnose if metadata.claude_diagnosis is later
 -- intentionally cleared.
