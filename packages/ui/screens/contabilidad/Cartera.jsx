@@ -1,6 +1,6 @@
 // Cartera — Contabilidad client roster + per-client semáforo (Phase 1).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, Search, X, Loader2, Building2, AlertCircle, Link2, Copy, Check, Unlink, Eye } from 'lucide-react'
+import { Plus, Search, X, Loader2, Building2, AlertCircle, Link2, Copy, Check, Unlink, Eye, Mail, Send, Trash2 } from 'lucide-react'
 import { useAPI } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 import { usePlan } from '../../hooks/usePlan'
@@ -10,10 +10,23 @@ import { applicableTemplates } from '@terminal-x/config/contabilidadCalendar.js'
 const PANEL_API = '/api/panel'
 
 async function callCtb(action, payload, method = 'POST') {
-  const mod = await import('@terminal-x/services/supabase')
-  const sb = mod.getSupabaseClient?.()
-  const sess = (await sb?.auth?.getSession?.())?.data?.session
-  const token = sess?.access_token
+  // Auth: read from window.__txSupabase (the persistent client that holds
+  // the user's session). The services/supabase singleton creates a parallel
+  // non-persistent client and would return null here.
+  let token = null
+  try {
+    const sb = (typeof window !== 'undefined') ? window.__txSupabase : null
+    const sess = (await sb?.auth?.getSession?.())?.data?.session
+    token = sess?.access_token || null
+  } catch {}
+  if (!token) {
+    try {
+      const mod = await import('@terminal-x/services/supabase')
+      const sb2 = mod.getSupabaseClient?.()
+      const sess2 = (await sb2?.auth?.getSession?.())?.data?.session
+      token = sess2?.access_token || null
+    } catch {}
+  }
   if (!token) throw new Error('Sesión expirada — inicia sesión.')
   const isGet = method === 'GET'
   const qs = isGet
@@ -103,6 +116,35 @@ export default function Cartera() {
 
   const [linkClient, setLinkClient] = useState(null)
   const [linkResult, setLinkResult] = useState(null)
+  const [inviteClient, setInviteClient] = useState(null)
+  const [inviteResult, setInviteResult] = useState(null)
+
+  async function sendEmailInvite({ email, business_name }) {
+    setBusy(true); setInviteResult(null)
+    try {
+      const r = await callCtb('ctb_invite_by_email', { email, business_name, send_email: true })
+      setInviteResult(r)
+      await reload()
+    } catch (e) {
+      setInviteResult({ ok: false, error: e?.message || String(e) })
+      try { window.__txReportError?.(e, { severity: 'error', category: 'contabilidad.invite.email.send', extra: { email, business_name } }) } catch {}
+    }
+    finally { setBusy(false) }
+  }
+
+  async function deleteClient(client) {
+    if (!confirm(`¿Eliminar a "${client.nombre_comercial}" de tu cartera? Esto archiva el cliente.`)) return
+    setBusy(true)
+    try {
+      await api.contabilidad.clientDelete(client.id)
+      await reload()
+    } catch (e) {
+      try { window.__txReportError?.(e, { severity: 'error', category: 'contabilidad.client.delete', extra: { client_id: client?.id } }) } catch {}
+      alert(`Error: ${e?.message || e}`)
+    }
+    finally { setBusy(false) }
+  }
+
   async function generateAccessCode(client) {
     setBusy(true); setLinkResult(null); setLinkClient(client)
     try {
@@ -151,10 +193,16 @@ export default function Cartera() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-2xl font-black text-black dark:text-white">Cartera</h1>
-        <button onClick={() => setEditing({})}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#b3001e] hover:bg-[#c8002a] text-white text-sm font-bold">
-          <Plus size={16} /> Nuevo cliente
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setInviteClient({}); setInviteResult(null) }}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-[#b3001e] text-[#b3001e] hover:bg-[#b3001e]/10 text-sm font-bold">
+            <Mail size={14} /> Invitar por email
+          </button>
+          <button onClick={() => setEditing({})}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#b3001e] hover:bg-[#c8002a] text-white text-sm font-bold">
+            <Plus size={16} /> Nuevo cliente
+          </button>
+        </div>
       </div>
 
       <div className="relative mb-4">
@@ -179,8 +227,31 @@ export default function Cartera() {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan="7" className="px-4 py-10 text-center text-black/40 dark:text-white/40">
-                <Building2 size={20} className="inline mr-2 text-[#b3001e]" />Sin clientes en cartera
+              <tr><td colSpan="7" className="px-4 py-12">
+                <div className="max-w-md mx-auto text-center">
+                  <div className="w-14 h-14 rounded-full bg-[#b3001e] flex items-center justify-center mx-auto mb-4">
+                    <Building2 size={26} className="text-white" />
+                  </div>
+                  <div className="text-base font-black text-black dark:text-white mb-2">
+                    Conecta tu primer cliente
+                  </div>
+                  <p className="text-sm text-black/60 dark:text-white/60 leading-relaxed mb-5">
+                    Terminal X cobra sentido cuando tienes a tu primer cliente conectado. En 2 minutos verás sus ventas, e-CFs e inventario en vivo desde aquí.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                    <button onClick={() => { setInviteClient({}); setInviteResult(null) }}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#b3001e] text-white text-sm font-bold hover:bg-[#8f0018]">
+                      <Mail size={14}/> Invitar por email
+                    </button>
+                    <button onClick={() => setEditing({})}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-black/15 dark:border-white/15 text-black dark:text-white text-sm font-bold hover:border-[#b3001e] hover:text-[#b3001e]">
+                      <Plus size={14}/> Agregar manualmente
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-black/40 dark:text-white/40 mt-4">
+                    Si tu cliente ya está en Terminal X, el email le llega con un link de un click.<br/>Si no está, puedes agregarlo manualmente y trabajar con la sesión DGII de su portal.
+                  </p>
+                </div>
               </td></tr>
             )}
             {filtered.map(r => {
@@ -204,10 +275,16 @@ export default function Cartera() {
                         <Unlink size={12}/> Conectado
                       </button>
                     ) : (
-                      <button onClick={() => generateAccessCode(r)} disabled={busy} title="Generar código para conectar al sistema del cliente"
-                        className="px-2.5 py-1 rounded-lg border border-black/15 dark:border-white/15 text-xs text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-50">
-                        <Link2 size={12}/> Conectar
-                      </button>
+                      <>
+                        <button onClick={() => generateAccessCode(r)} disabled={busy} title="Generar código de 8 caracteres"
+                          className="px-2.5 py-1 rounded-lg border border-black/15 dark:border-white/15 text-xs text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-50">
+                          <Link2 size={12}/> Código
+                        </button>
+                        <button onClick={() => { setInviteClient(r); setInviteResult(null) }} disabled={busy} title="Enviar invitación por email"
+                          className="px-2.5 py-1 rounded-lg border border-black/15 dark:border-white/15 text-xs text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-50">
+                          <Mail size={12}/> Email
+                        </button>
+                      </>
                     )}
                     {canImpersonate && r.access_granted && r.shared_business_id && (
                       <button onClick={() => viewAsClient(r)} disabled={busy}
@@ -223,6 +300,10 @@ export default function Cartera() {
                     <button onClick={() => setEditing(r)}
                       className="px-2.5 py-1 rounded-lg bg-black text-white text-xs hover:bg-[#b3001e] dark:bg-white dark:text-black dark:hover:bg-[#b3001e] dark:hover:text-white">
                       Editar
+                    </button>
+                    <button onClick={() => deleteClient(r)} disabled={busy} title="Eliminar (archivar) cliente"
+                      className="px-2.5 py-1 rounded-lg border border-black/15 dark:border-white/15 text-xs text-black/50 dark:text-white/50 hover:border-[#b3001e] hover:text-[#b3001e] inline-flex items-center gap-1 disabled:opacity-50">
+                      <Trash2 size={12}/>
                     </button>
                   </td>
                 </tr>
@@ -252,6 +333,122 @@ export default function Cartera() {
           onClose={() => { setLinkClient(null); setLinkResult(null) }}
         />
       )}
+
+      {inviteClient && (
+        <InviteEmailModal
+          client={inviteClient}
+          result={inviteResult}
+          busy={busy}
+          onSend={sendEmailInvite}
+          onClose={() => { setInviteClient(null); setInviteResult(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+function InviteEmailModal({ client, result, busy, onSend, onClose }) {
+  const [email, setEmail] = useState('')
+  const [businessName, setBusinessName] = useState(client?.nombre_comercial || '')
+  const [copied, setCopied] = useState(false)
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+
+  function copy() {
+    if (!result?.magic_link) return
+    navigator.clipboard?.writeText(result.magic_link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+  }
+  function whatsappShare() {
+    const msg = `Te invito a conectar tu Terminal X a mi contabilidad. Click aquí: ${result.magic_link}`
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-black rounded-2xl border border-black/10 dark:border-white/10 max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-black text-black dark:text-white text-base inline-flex items-center gap-2">
+            <Mail size={16} className="text-[#b3001e]"/> Invitar por email
+          </h2>
+          <button onClick={onClose} className="text-black/50 dark:text-white/50 hover:text-[#b3001e]"><X size={18}/></button>
+        </div>
+
+        {!result && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-black/50 dark:text-white/50 mb-1">Email del cliente</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="cliente@ejemplo.com"
+                className="w-full px-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-black text-sm text-black dark:text-white"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-black/50 dark:text-white/50 mb-1">Nombre del negocio (opcional)</label>
+              <input
+                type="text"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Nombre Comercial SRL"
+                className="w-full px-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-white dark:bg-black text-sm text-black dark:text-white"
+              />
+            </div>
+            <div className="text-[11px] text-black/60 dark:text-white/60 leading-relaxed">
+              Le mandaremos un email con un link mágico. Cuando lo clickee, automáticamente quedará conectado a tu Portfolio y serás creado como usuario con rol <strong>Contador</strong> en su Terminal X. Vence en 7 días.
+            </div>
+            <button
+              onClick={() => onSend({ email: email.trim(), business_name: businessName.trim() })}
+              disabled={!valid || busy}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#b3001e] text-white text-sm font-bold hover:bg-[#8f0018] disabled:opacity-50"
+            >
+              {busy && <Loader2 size={14} className="animate-spin" />}
+              <Send size={14} /> Enviar invitación
+            </button>
+          </div>
+        )}
+
+        {result?.ok && (
+          <div className="space-y-3">
+            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-sm text-emerald-700 dark:text-emerald-300 inline-flex items-start gap-2">
+              <Check size={16} className="mt-0.5 shrink-0" />
+              <div>
+                {result.email?.sent
+                  ? <>Email enviado a <strong>{result.invite_email}</strong>.</>
+                  : <>Invitación creada. <strong>Email no enviado</strong> ({result.email?.reason || 'sin servicio'}) — usa el link de abajo.</>}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-black/50 dark:text-white/50 mb-1">Link de invitación</label>
+              <div className="flex gap-2">
+                <input value={result.magic_link} readOnly
+                  className="flex-1 px-3 py-2 rounded-lg border border-black/15 dark:border-white/15 bg-black/5 dark:bg-white/5 text-[11px] font-mono text-black dark:text-white truncate"/>
+                <button onClick={copy} className="px-3 py-2 rounded-lg bg-black text-white dark:bg-white dark:text-black text-xs font-bold inline-flex items-center gap-1">
+                  {copied ? <><Check size={12}/> Copiado</> : <><Copy size={12}/> Copiar</>}
+                </button>
+              </div>
+            </div>
+            <button onClick={whatsappShare} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-black/15 dark:border-white/15 text-sm font-bold text-black/70 dark:text-white/70 hover:border-[#b3001e] hover:text-[#b3001e]">
+              Compartir por WhatsApp
+            </button>
+            <div className="text-[11px] text-black/50 dark:text-white/50">
+              Vence el {new Date(result.expires_at).toLocaleDateString('es-DO', { day: 'numeric', month: 'long', year: 'numeric' })}.
+            </div>
+          </div>
+        )}
+
+        {result?.ok === false && (
+          <div className="rounded-xl bg-[#b3001e]/10 border border-[#b3001e]/30 p-3 text-sm text-[#b3001e]">
+            {result.error || 'No se pudo enviar la invitación.'}
+          </div>
+        )}
+
+        <div className="flex justify-end mt-5">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-black/15 dark:border-white/15 text-sm">Cerrar</button>
+        </div>
+      </div>
     </div>
   )
 }

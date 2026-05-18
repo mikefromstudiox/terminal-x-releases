@@ -284,7 +284,7 @@ export default function ConfigEditor({ businessId, getToken, onRefresh, isDark, 
       </div>
 
       {/* Feature Overrides — branch by business_type */}
-      {businessType === 'contabilidad' ? (
+      {(businessType === 'accounting' || businessType === 'contabilidad') ? (
         <div className={`${card} ${readOnly ? 'opacity-60 pointer-events-none' : ''}`}>
           <p className={sectionTitle}><Settings size={13} /> {L('Funciones', 'Features')}</p>
           <div className="grid grid-cols-2 gap-2">

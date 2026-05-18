@@ -6,6 +6,16 @@ import { SALON_WA_TEMPLATES, fillTemplate } from '../lib/salon-wa-templates.js'
 import { withReporting, reportServerError } from '../lib/report-server-error.js'
 
 const ALLOWED_ORIGINS = ['https://terminalxpos.com', 'http://localhost:5173']
+// Vercel preview deploys for OUR team only. Pattern locks to the project slug
+// so arbitrary *.vercel.app sites can't ride the CORS pass.
+const VERCEL_PREVIEW_PATTERN = /^https:\/\/terminalx-[a-z0-9]+-michaels-projects-d6ab0573\.vercel\.app$/
+
+function isAllowedOrigin(origin) {
+  if (!origin) return false
+  if (ALLOWED_ORIGINS.includes(origin)) return true
+  if (VERCEL_PREVIEW_PATTERN.test(origin)) return true
+  return false
+}
 
 // businesses.settings is JSONB, but historical rows were written as a
 // JSON-encoded *string* (because a client called JSON.stringify() before insert).
@@ -28,7 +38,7 @@ function cors(req, res) {
   // Non-browser callers (no Origin header) pass through. Browser cross-origin
   // attempts are rejected outright — no silent ACAO rewrite fallthrough.
   if (origin) {
-    if (!ALLOWED_ORIGINS.includes(origin)) {
+    if (!isAllowedOrigin(origin)) {
       res.status(403).json({ error: 'origin_not_allowed' })
       return true
     }
@@ -152,6 +162,15 @@ async function handler(req, res) {
   // deploy_smoke_history is admin-gated read for the Dashboard "Deploy Health" card.
   if (action === 'cron_deploy_smoke')           return handleCronDeploySmoke(req, res)
   if (action === 'deploy_smoke_history')        return handleDeploySmokeHistory(req, res)
+
+  // ── 2026-05-17 — Layer 4 Flow Drift smoke. Walks real user actions end-to-end
+  // (encolar→cobrar, mesa addon, void→NCF decrement, mesa occupied parity,
+  // /pos route resolution) and asserts DB side-effects match the UI claim.
+  // Catches the 2026-05-17 queue.ticket_id=NULL silent-markPaid-skip class of
+  // bug that Layers 1/2/3 cannot see. Cron every 15min; failures escalate to
+  // client_errors as critical, category='flow_drift.fail'.
+  if (action === 'cron_flow_drift_smoke')       return handleCronFlowDriftSmoke(req, res)
+  if (action === 'flow_drift_history')          return handleFlowDriftHistory(req, res)
 
   // ── v2.16.7 — Lending collections reminders (24h + 2h windows) ──────────
   // Hourly cron tick + license-JWT mark/list paths. WABA is NOT live —
@@ -489,8 +508,7 @@ async function handleCtbMyAccountant(req, res) {
 
 // 32-byte url-safe token (~256 bits entropy)
 function generateInviteToken() {
-  const bytes = require('crypto').randomBytes(32)
-  return bytes.toString('base64url')
+  return crypto.randomBytes(32).toString('base64url')
 }
 
 // POST { email, business_name?, rnc?, send_email? } — firm side.
@@ -547,6 +565,7 @@ async function handleCtbInviteByEmail(req, res) {
     const { data: row, error } = await auth.supabase.from('accounting_clients')
       .insert({
         business_id: auth.businessId,
+        supabase_id: crypto.randomUUID(),
         nombre_comercial: businessName || email,
         rnc: rnc,
         invite_email: email,
@@ -5066,6 +5085,96 @@ async function handleDeploySmokeHistory(req, res) {
     return res.json({ data: data || [] })
   } catch (err) {
     reportServerError(err, { route: '/api/panel', action: 'deploy_smoke_history' }).catch(() => {})
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-05-17 — Layer 4 Flow Drift smoke handlers
+// ─────────────────────────────────────────────────────────────────────────────
+// Imports the harness as an ES module and runs it server-side. Same auth +
+// escalation pattern as cron_deploy_smoke (Layer 1). The base URL for the
+// route-resolution scenario is the deployed origin; we read it from
+// VERCEL_URL when running on Vercel, falling back to terminalxpos.com so
+// local CRON_SECRET-triggered runs hit the same target.
+async function handleCronFlowDriftSmoke(req, res) {
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    // Runner lives in ../lib/flow-drift-runner.js. In repo root that's
+    // ../web/lib/... resolved via the symlinked /lib (see d7f45ce). In
+    // dist-web after prepare-vercel.mjs, web/lib/*.js is copied into
+    // dist-web/lib/ — so ../lib/ resolves the same way for the deployed
+    // Vercel function.
+    const { runFlowDrift } = await import('../lib/flow-drift-runner.js')
+    const base = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : 'https://terminalxpos.com'
+    const { results, duration_ms } = await runFlowDrift({ sb: getClient(), base })
+    const passed = results.filter(r => r.ok).length
+    const failed = results.length - passed
+    const failures = results.filter(r => !r.ok).map(r => ({
+      scenario: r.scenario,
+      expected: r.expected || null,
+      observed: r.observed || null,
+      detail: r.detail || null,
+    }))
+
+    const sb = getClient()
+    await sb.from('flow_drift_runs').insert({
+      passed_count: passed,
+      failed_count: failed,
+      total_count: results.length,
+      failures: failures.length ? failures : null,
+      duration_ms,
+      source: 'cron',
+    })
+
+    // Escalate any failure to client_errors as critical (Layer 4 owns the
+    // markPaid-silent-skip class — these MUST page Mike, not silently log).
+    if (failed > 0) {
+      const msg = `flow-drift FAIL ${failed}/${results.length} — ${failures.map(f => f.scenario).slice(0, 5).join(' | ')}`
+      try {
+        await sb.from('client_errors').insert({
+          business_id: null,
+          message: msg.slice(0, 2000),
+          stack: null,
+          route: '/__flow_drift',
+          user_agent: 'tx-cron-flow-drift',
+          severity: 'critical',
+          metadata: { category: 'flow_drift.fail', source: 'tx-cron-flow-drift', failures, duration_ms },
+        })
+      } catch (e) {
+        console.error('[cron_flow_drift_smoke] failed to insert client_errors alert', e?.message)
+      }
+    }
+
+    return res.json({ ok: true, passed, failed, total: results.length, duration_ms, failures: failures.length ? failures : undefined })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_flow_drift_smoke' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'flow_drift_failed' })
+  }
+}
+
+async function handleFlowDriftHistory(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100)
+    const { data, error } = await auth.supabase
+      .from('flow_drift_runs')
+      .select('*')
+      .order('ran_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'flow_drift_history' }).catch(() => {})
     return res.status(500).json({ error: err.message })
   }
 }

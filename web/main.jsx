@@ -26,6 +26,7 @@ const Agendar             = React.lazy(() => import('@/landing/Agendar'))
 const IndustryPage        = React.lazy(() => import('@/landing/IndustryPage'))
 const WorkOrderApprove    = React.lazy(() => import('@/landing/WorkOrderApprove'))
 const Demo                = React.lazy(() => import('@/landing/demos/Demo'))
+const AceptarContador     = React.lazy(() => import('@/landing/AceptarContador'))
 
 // Blog lang resolver — same precedence as the landing-page hook
 // (`tx_landing_lang` localStorage > navigator.language > 'es') but without
@@ -464,12 +465,24 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
 
   async function fetchBusinessId(userId) {
     try {
-      let { data, error: err } = await supabase
-        .from('staff')
-        .select('business_id')
-        .eq('auth_user_id', userId)
-        .limit(1)
-        .maybeSingle()
+      // CANONICAL source = JWT app_metadata.business_id. The legacy staff
+      // lookup .limit(1) picks at random when a user has multiple staff rows
+      // (e.g. accountant who is owner in their firm AND role=accountant in
+      // client tenants via the email-invite accept flow).
+      const { data: { session: s } } = await supabase.auth.getSession()
+      const jwtBid = s?.user?.app_metadata?.business_id || null
+
+      let data = jwtBid ? { business_id: jwtBid } : null
+      let err = null
+
+      if (!data) {
+        ;({ data, error: err } = await supabase
+          .from('staff')
+          .select('business_id')
+          .eq('auth_user_id', userId)
+          .limit(1)
+          .maybeSingle())
+      }
 
       if (!data) {
         const { data: biz, error: bizErr } = await supabase
@@ -643,6 +656,15 @@ const SignupRoute = React.lazy(() =>
   }))
 )
 
+// Pre-boots Supabase before rendering the accept page so the session check
+// inside <AceptarContador> resolves on first render.
+function AceptarContadorRoute() {
+  const [ready, setReady] = useState(false)
+  useEffect(() => { getSupabaseReady().then(() => setReady(true)) }, [])
+  if (!ready) return <PageLoader />
+  return <AceptarContador supabase={_supabase} />
+}
+
 // 2026-05-03 (peppy-greeting-popcorn) — route-mismatch sentinel for the
 // outer BrowserRouter. Replaces the silent `<Navigate to="/">` catch-all so we
 // see in /admin Errores when a sidebar tab points to a path the routing layer
@@ -782,6 +804,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/cert/:token" element={
               <React.Suspense fallback={<PageLoader />}>
                 <CertPortal />
+              </React.Suspense>
+            } />
+
+            {/* Contabilidad email-invite magic-link landing. Reads ?token=X,
+                resolves firm via public ctb_invite_lookup, requires Supabase
+                auth to consume via ctb_accept_invite_token. */}
+            <Route path="/aceptar-contador" element={
+              <React.Suspense fallback={<PageLoader />}>
+                <AceptarContadorRoute />
               </React.Suspense>
             } />
 

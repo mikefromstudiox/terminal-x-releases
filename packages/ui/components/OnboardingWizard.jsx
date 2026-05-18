@@ -84,7 +84,17 @@ export default function OnboardingWizard() {
         const firstsaleDone = svcCount > 0
         setDoneFlags({ pin: pinSet, settings: settingsDone, firstsale: firstsaleDone })
 
+        // Contabilidad firms skip the POS-flavored chooser entirely. Their
+        // activation moment is in Cartera (connect first client). After PIN
+        // is set, mark wizard completed so it exits.
+        const businessType = String(s?.business_type || s?.biz_type || '').toLowerCase()
+        const isContabilidad = businessType === 'accounting' || businessType === 'contabilidad'
+
         if (!pinSet) { setStage('pin'); return }
+        if (isContabilidad) {
+          try { await api.settings?.update?.({ [STATE_KEY]: 'completed' }) } catch (_) {}
+          return
+        }
         if (stored === 'path_settings')  { setStage('settings');  return }
         if (stored === 'path_firstsale') { setStage('firstsale'); return }
         if (stored === 'crosspromo')     { setStage('crosspromo'); return }

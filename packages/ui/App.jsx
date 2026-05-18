@@ -139,7 +139,20 @@ function MembershipsRouter() {
 // route. Other verticals keep the POS landing they always had.
 function HomeRoute() {
   const { businessType } = useBusinessType()
-  if (businessType === 'contabilidad') return <Navigate to="/contabilidad" replace />
+  // Pending contabilidad invite redirect — AceptarContador stashes the token
+  // in sessionStorage before bouncing unauthenticated users to /pos for login.
+  // After login lands here, consume the token (one-shot) and redirect back.
+  let pendingInvite = null
+  try {
+    pendingInvite = sessionStorage.getItem('tx_pending_invite_token')
+    if (pendingInvite) sessionStorage.removeItem('tx_pending_invite_token')
+  } catch {}
+  if (pendingInvite) {
+    return <Navigate to={`/aceptar-contador?token=${encodeURIComponent(pendingInvite)}`} replace />
+  }
+  if (businessType === 'accounting' || businessType === 'contabilidad') {
+    return <Navigate to="/contabilidad" replace />
+  }
   return <POS />
 }
 

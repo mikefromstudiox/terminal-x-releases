@@ -93,6 +93,7 @@ export function createContabilidadAPI(supabase, businessId) {
     return tryOr(async () => {
       const { data, error } = await supabase.from(TBL.clients)
         .select('*').eq('business_id', bid())
+        .neq('status', 'archived')
         .order('nombre_comercial', { ascending: true })
       if (error) throw error
       return data || []
