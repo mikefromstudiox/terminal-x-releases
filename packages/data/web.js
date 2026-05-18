@@ -3388,16 +3388,29 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.tickets.transferToMesa'),
 
       // ── Mesas add-on: running-tab support ─────────────────────────────────
-      // byMesa: load the latest open ticket for a mesa (by supabase_id) plus
-      // all its ticket_items so the POS can re-hydrate them into the cart for
-      // an "add another beer" flow. Verified pg_catalog 2026-05-17.
+      // byMesa: load the latest active ticket for a mesa (by supabase_id)
+      // plus all its ticket_items so the POS can re-hydrate them into the
+      // cart for an "add another beer" flow.
+      //
+      // 2026-05-17 FIX: original query filtered on open_status='open' which
+      // is only set by restaurant-style open tabs (mesa "abrir" → status
+      // 'open' → close on cobrar). Carwash tickets created via Encolar
+      // have open_status='closed' even though they sit in cola with a
+      // mesa tag. Result: the mesa showed RED (occupied — because the
+      // queue.active poll matched the cola row) but clicking it returned
+      // "no hay ticket abierto" because byMesa filtered out the only row.
+      //
+      // New criterion mirrors the occupied poll: find the latest ticket
+      // on this mesa whose status is still in-flight (not cobrado/voided
+      // /cancelled/merged). This matches whatever the user sees as
+      // "occupied" on the mesa circle.
       byMesa: (mesaSupabaseId) => tryOr(async () => {
         if (!mesaSupabaseId) return null
         const { data: ticket, error: tErr } = await supabase.from('tickets')
           .select('*')
           .eq('business_id', bid)
           .eq('mesa_supabase_id', mesaSupabaseId)
-          .eq('open_status', 'open')
+          .not('status', 'in', '("cobrado","voided","cancelled","merged","anulado","nula")')
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle()
@@ -3448,7 +3461,10 @@ export function createWebAPI(supabase, businessId) {
           .maybeSingle()
         if (cErr) throw new Error(cErr.message)
         if (!cur) throw new Error('Ticket no encontrado')
-        if (cur.open_status !== 'open' || ['cobrado','done','cancelled','voided','nula','anulado'].includes(String(cur.status || '').toLowerCase())) {
+        // 2026-05-17 — drop open_status='open' gate (it rejected carwash
+        // tickets that are in cola with mesa tags; matches byMesa fix
+        // above). Only block on terminal statuses.
+        if (['cobrado','done','cancelled','voided','nula','anulado','merged'].includes(String(cur.status || '').toLowerCase())) {
           throw new Error('Ticket ya cerrado')
         }
 

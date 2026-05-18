@@ -6247,14 +6247,20 @@ function ticketTransferToMesa({ ticket_supabase_id, new_mesa_id } = {}) {
 }
 
 // ── Mesas add-on: running-tab support ─────────────────────────────────────
-// ticketGetActiveByMesaSupabaseId — latest open ticket on a mesa with items.
+// ticketGetActiveByMesaSupabaseId — latest active ticket on a mesa with items.
 // Used by the POS to re-hydrate the cart when reclicking an occupied mesa.
+//
+// 2026-05-17 FIX: dropped open_status='open' filter (carwash tickets are
+// open_status='closed' even when in cola — they're not restaurant-style
+// open tabs). Match instead on non-terminal status so we find whatever
+// the occupied poll considers occupied. See web.js byMesa for context.
 function ticketGetActiveByMesaSupabaseId(mesaSupabaseId) {
   if (!db) throw new Error('DB no inicializada')
   if (!mesaSupabaseId) return null
   const ticket = db.prepare(
     `SELECT * FROM tickets
-       WHERE mesa_supabase_id=? AND open_status='open'
+       WHERE mesa_supabase_id=?
+         AND LOWER(COALESCE(status,'')) NOT IN ('cobrado','done','cancelled','voided','nula','anulado','merged')
        ORDER BY created_at DESC LIMIT 1`
   ).get(mesaSupabaseId)
   if (!ticket) return null
@@ -6291,8 +6297,8 @@ function ticketAppendItems({ ticket_supabase_id, items } = {}) {
          FROM tickets WHERE supabase_id=?`
     ).get(ticket_supabase_id)
     if (!cur) throw new Error('Ticket no encontrado')
-    if (cur.open_status !== 'open' ||
-        ['cobrado','done','cancelled','voided','nula','anulado'].includes(String(cur.status || '').toLowerCase())) {
+    // 2026-05-17 — drop open_status gate (rejected carwash tickets in cola).
+    if (['cobrado','done','cancelled','voided','nula','anulado','merged'].includes(String(cur.status || '').toLowerCase())) {
       throw new Error('Ticket ya cerrado')
     }
 
