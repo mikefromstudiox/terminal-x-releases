@@ -3059,6 +3059,48 @@ function init(userDataPath, options = {}) {
     active       INTEGER NOT NULL DEFAULT 1,
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
+
+  // v2.17.11 (2026-05-18) — Fresh-install schema-parity for inventory_items.
+  // Same root cause as empleados (see lines 3094+): the main migrations array
+  // (310-2057) runs BEFORE this CREATE TABLE, so every `ALTER TABLE
+  // inventory_items` migration there fails silently with "no such table" on
+  // a clean install. Existing installs got the columns over time because
+  // inventory_items existed from prior versions. Ranoza's first-ever desktop
+  // install on 2026-05-18 exposed this — sync.pull.inventory_items threw
+  // "no such column: updated_at" on every row after empleados was fixed.
+  // Re-run the column ALTERs here, post-CREATE, so fresh installs land on
+  // the full synced-table schema.
+  const _inventoryItemsPostCreate = [
+    "ALTER TABLE inventory_items ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
+    "ALTER TABLE inventory_items ADD COLUMN supabase_id TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN business_id TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN barcode TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN aplica_itbis INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE inventory_items ADD COLUMN oem_part_number TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN compatibility TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN reorder_quantity INTEGER DEFAULT 0",
+    "ALTER TABLE inventory_items ADD COLUMN supplier TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN sold_by_weight INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE inventory_items ADD COLUMN unit TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN price_per_unit REAL",
+    "ALTER TABLE inventory_items ADD COLUMN bottle_deposit REAL",
+    "ALTER TABLE inventory_items ADD COLUMN tare_default REAL",
+    "ALTER TABLE inventory_items ADD COLUMN price_pedidos_ya REAL",
+    "ALTER TABLE inventory_items ADD COLUMN salon_upsell INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE inventory_items ADD COLUMN salon_upsell_order INTEGER",
+    "ALTER TABLE inventory_items ADD COLUMN prepacked INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE inventory_items ADD COLUMN corte_category_supabase_id TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN expires_at TEXT",
+    "ALTER TABLE inventory_items ADD COLUMN received_at TEXT",
+  ]
+  for (const sql of _inventoryItemsPostCreate) {
+    try { db.exec(sql) } catch (e) {
+      if (!(e.message || '').includes('duplicate column')) {
+        console.warn('[db] inventory_items post-create migration warning:', e.message)
+      }
+    }
+  }
+
   db.exec(`CREATE TABLE IF NOT EXISTS inventory_transactions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     item_id    INTEGER NOT NULL REFERENCES inventory_items(id),
