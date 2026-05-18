@@ -166,7 +166,7 @@ function webDeviceAll() {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-async function tryOr(fn, fallback) {
+async function tryOr(fn, fallback, label) {
   try {
     const result = await fn()
     // Supabase returns null for empty results — coerce to fallback
@@ -177,7 +177,18 @@ async function tryOr(fn, fallback) {
     // Logging every read-miss as ERROR floods the console during SPA boot
     // (session not yet attached → transient 4xx) and triggers false-positive
     // E2E audits. Writes still use tryWrite which throws + errors loudly.
-    if (typeof console !== 'undefined') console.debug?.('[web.js.read]', err.message || err)
+    if (typeof console !== 'undefined') console.debug?.('[web.js.read]', label || '', err.message || err)
+    // Surface to admin Errores panel as a WARN so silent read failures
+    // (RLS denial, JWT expired, transient fetch) are visible without flooding
+    // — was the root cause of "Conteo Físico is empty but data exists" 2026-05-18.
+    try {
+      const msg = String(err?.message || err || '')
+      // Skip the boot transient (no session yet → 401) so we don't spam reports.
+      const isBootAuth = /JWT|jwt expired|Invalid Refresh Token|Auth session missing|not authenticated|401/i.test(msg)
+      if (!isBootAuth && typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
+        window.__txReportError(err, { severity: 'warn', category: label || 'web.read' })
+      }
+    } catch {}
     if (fallback !== undefined) return fallback
     throw err
   }
@@ -1287,9 +1298,9 @@ export function createWebAPI(supabase, businessId) {
           }
         }
         return rows.map(r => ({ ...r, ...(counts[r.supabase_id] || { items_count: 0, counted_count: 0 }) }))
-      }, []),
+      }, [], 'web.inventoryCount.list'),
 
-      get: (idOrSid) => tryOr(async () => fetchCount(supabase, bid, idOrSid)),
+      get: (idOrSid) => tryOr(async () => fetchCount(supabase, bid, idOrSid), null, 'web.inventoryCount.get'),
 
       saveItem: ({ count_supabase_id, inventory_item_supabase_id, counted_qty, notes }) => tryWrite(async () => {
         if (!count_supabase_id || !inventory_item_supabase_id) throw new Error('missing_key')
