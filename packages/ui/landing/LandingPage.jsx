@@ -1518,7 +1518,7 @@ export default function LandingPage({ section, forceLang }) {
                 rel="noopener noreferrer"
                 className="hover:text-white/70 transition-colors"
               >
-                {L('Clientes existentes: descargar última versión de escritorio (Windows) — v2.17.0', 'Existing customers: download latest desktop build (Windows) — v2.17.0')}
+                {L('Clientes existentes: descargar última versión de escritorio (Windows) — v2.17.8', 'Existing customers: download latest desktop build (Windows) — v2.17.8')}
               </a>
             </p>
           </div>
