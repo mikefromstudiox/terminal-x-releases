@@ -300,7 +300,7 @@ export default function SignupPage({ supabase, forceLang }) {
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Email', 'Email')} *</label>
               <input type="email" value={form.email} onChange={e => set('email', e.target.value)}
                 placeholder="tu@email.com" autoComplete="email" className="w-full px-4 py-3 rounded-lg bg-slate-800 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-[#b3001e]" required />
-              <p className="mt-1 text-[10px] text-slate-500">{L('Lo usaremos para crear tu cuenta y enviarte el acceso.', 'We will use it to create your account and send your access.')}</p>
+              <p className="mt-1 text-[10px] text-slate-400">{L('Lo usaremos para crear tu cuenta y enviarte el acceso.', 'We will use it to create your account and send your access.')}</p>
             </div>
             <div>
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Telefono (opcional)', 'Phone (optional)')}</label>
@@ -401,7 +401,7 @@ export default function SignupPage({ supabase, forceLang }) {
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Email', 'Email')}</label>
               <input type="email" value={form.email} readOnly
                 className="w-full px-4 py-3 rounded-lg bg-slate-900 text-slate-300 outline-none cursor-not-allowed border border-slate-700" />
-              <p className="mt-1 text-[10px] text-slate-500">{L('Capturado en el paso 1. Vuelve atras para cambiarlo.', 'Captured on step 1. Go back to change it.')}</p>
+              <p className="mt-1 text-[10px] text-slate-400">{L('Capturado en el paso 1. Vuelve atras para cambiarlo.', 'Captured on step 1. Go back to change it.')}</p>
             </div>
             <div>
               <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1">{L('Contrasena', 'Password')} *</label>
