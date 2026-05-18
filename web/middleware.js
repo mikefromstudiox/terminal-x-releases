@@ -15,8 +15,14 @@
 //      route-specific <title>, <meta description>, <link canonical>, OG/Twitter
 //      tags, and reciprocal es-DO ↔ en hreflang alternates (URL pair, not
 //      `?lang=` parameter — Google's preferred pattern).
-//   4. Injects route-specific JSON-LD: BreadcrumbList everywhere, Article on
-//      blog posts, Product+AggregateOffer on /pricing.
+//   4. Injects route-specific JSON-LD:
+//        - BreadcrumbList on every per-route page (auto-generated from path)
+//        - Article + FAQPage on blog posts (when post.faq exists)
+//        - Product per tier (6 entries) + AggregateOffer on /pricing
+//        - Service per /industrias/:slug
+//        - WebSite + SearchAction on '/' homepage (primes sitelink searchbox)
+//      Prices are canonical per memory/reference_pricing_locked_20260512.md —
+//      do NOT regress to 995 / 2,990 / 5,490 / 9,990.
 //   5. For non-HTML routes the matcher excludes them entirely so the static
 //      header in `vercel.json` keeps owning CSP for assets, /api, etc.
 
@@ -48,6 +54,10 @@ const INDUSTRY_NAMES_ES = {
   prestamos: 'Préstamos y empeños',
   servicios: 'POS para servicios profesionales',
   empresas: 'Nómina TSS / INFOTEP / ISR',
+  contabilidad: 'Software para contadores y firmas contables',
+  food_truck: 'POS para food trucks',
+  carniceria: 'POS para carnicerías',
+  hybrid: 'POS híbrido multi-vertical',
 };
 const INDUSTRY_NAMES_EN = {
   facturacion: 'DGII e-invoicing',
@@ -60,6 +70,10 @@ const INDUSTRY_NAMES_EN = {
   prestamos: 'Loans & pawnshop',
   servicios: 'Professional services POS',
   empresas: 'Payroll TSS / INFOTEP / ISR',
+  contabilidad: 'Software for accountants and accounting firms',
+  food_truck: 'Food truck POS',
+  carniceria: 'Butcher shop POS',
+  hybrid: 'Hybrid multi-vertical POS',
 };
 
 // Blog posts — power Article schema. Keys = slug (same in both languages).
@@ -639,46 +653,103 @@ function buildFAQPageSchema(pathname, meta) {
   };
 }
 
-// Product + AggregateOffer for /pricing pages — eligible for SERP price snippet.
+// Canonical prices — memory/reference_pricing_locked_20260512.md.
+// Do NOT regress to the legacy 995 / 2,990 / 5,490 / 9,990 numbers.
 const PRICING_PLANS = [
-  { name: 'Facturación',          price: 995,  url: '/signup?plan=facturacion' },
-  { name: 'Facturación Plus',     price: 1990, url: '/signup?plan=facturacion-plus' },
-  { name: 'Facturación Ilimitado',price: 2990, url: '/signup?plan=facturacion-ilimitado' },
-  { name: 'Pro',                  price: 2990, url: '/signup?plan=pro' },
-  { name: 'Pro PLUS',             price: 5490, url: '/signup?plan=pro-plus' },
-  { name: 'Pro MAX',              price: 9990, url: '/signup?plan=pro-max' },
+  { slug: 'facturacion',      name: 'Facturación Pro',      price: 490,  url: '/signup?plan=facturacion-pro',      desc_es: '50 e-CFs/mes · directo a DGII sin PSFE · 1 usuario',                          desc_en: '50 e-CFs/month · direct to DGII without PSFE · 1 user' },
+  { slug: 'facturacion-plus', name: 'Facturación Pro PLUS', price: 990,  url: '/signup?plan=facturacion-pro-plus', desc_es: '250 e-CFs/mes · multi-usuario · multi-moneda · 606/607',                       desc_en: '250 e-CFs/month · multi-user · multi-currency · 606/607' },
+  { slug: 'facturacion-max',  name: 'Facturación Pro MAX',  price: 1990, desc_es: 'e-CFs ilimitados · multi-sucursal · API · soporte prioritario',                 url: '/signup?plan=facturacion-pro-max', desc_en: 'Unlimited e-CFs · multi-location · API · priority support' },
+  { slug: 'pos-pro',          name: 'POS Pro',              price: 2490, url: '/signup?plan=pos-pro',              desc_es: 'POS completo · NCF papel · cuadre + caja chica · 2 usuarios',                  desc_en: 'Full POS · paper NCF · cash reconciliation + petty cash · 2 users' },
+  { slug: 'pos-pro-plus',     name: 'POS Pro PLUS',         price: 4490, url: '/signup?plan=pos-pro-plus',         desc_es: 'POS + e-CF directo a DGII · Viafirma incluido · 5 usuarios · comisiones',      desc_en: 'POS + e-CF direct to DGII · Viafirma included · 5 users · commissions' },
+  { slug: 'pos-pro-max',      name: 'POS Pro MAX',          price: 6990, url: '/signup?plan=pos-pro-max',          desc_es: 'Todo + nómina TSS/INFOTEP/ISR · usuarios ilimitados · dashboard remoto',       desc_en: 'Everything + payroll TSS/INFOTEP/ISR · unlimited users · remote dashboard' },
 ];
+
+// Product schema per tier on /pricing — Google indexes each Offer individually
+// so per-tier emission yields more rich-result eligibility than a single
+// AggregateOffer rollup. NOTE: no aggregateRating on any node — we have no
+// verified review corpus; fabricating one risks Search Console manual action.
 function buildProductSchema(pathname, meta) {
   if (pathname !== '/pricing' && pathname !== '/en/pricing') return null;
   const lang = meta.lang || 'es';
-  const lowPrice  = Math.min(...PRICING_PLANS.map(p => p.price));
-  const highPrice = Math.max(...PRICING_PLANS.map(p => p.price));
-  return {
+  return PRICING_PLANS.map(p => ({
     '@context': 'https://schema.org',
     '@type': 'Product',
-    name: 'Terminal X',
-    description: lang === 'en'
-      ? 'POS and DGII-certified e-CF for the Dominican Republic. 6 plans from RD$995 to RD$9,990 per month, all annual billing 15% off.'
-      : 'POS y facturación electrónica e-CF certificada por DGII para República Dominicana. 6 planes de RD$995 a RD$9,990 al mes, anual 15% OFF.',
-    brand: { '@type': 'Brand', name: 'Terminal X' },
+    '@id': `${SITE}${pathname}#${p.slug}`,
+    name: `Terminal X ${p.name}`,
+    description: lang === 'en' ? p.desc_en : p.desc_es,
+    brand: { '@type': 'Organization', '@id': `${SITE}/#organization`, name: 'Terminal X' },
     image: `${SITE}/og-image.png`,
-    aggregateRating: { '@type': 'AggregateRating', ratingValue: '4.9', reviewCount: '47' },
+    category: 'BusinessApplication > PointOfSale',
     offers: {
-      '@type': 'AggregateOffer',
+      '@type': 'Offer',
+      price: String(p.price),
       priceCurrency: 'DOP',
-      lowPrice: String(lowPrice),
-      highPrice: String(highPrice),
-      offerCount: PRICING_PLANS.length,
       availability: 'https://schema.org/InStock',
-      url: `${SITE}${pathname}`,
-      offers: PRICING_PLANS.map(p => ({
-        '@type': 'Offer',
-        name: p.name,
+      url: `${SITE}${p.url}`,
+      priceSpecification: {
+        '@type': 'UnitPriceSpecification',
         price: String(p.price),
         priceCurrency: 'DOP',
-        availability: 'https://schema.org/InStock',
-        url: `${SITE}${p.url}`,
-      })),
+        billingDuration: 'P1M',
+        unitCode: 'MON',
+      },
+      seller: { '@type': 'Organization', '@id': `${SITE}/#organization` },
+    },
+  }));
+}
+
+// Service schema per /industrias/:slug — surfaces the vertical as a discrete
+// service in SERP, linked back to the Organization + pricing page.
+function buildServiceSchema(pathname, meta) {
+  const isIndustry = pathname.startsWith('/industrias/') || pathname.startsWith('/en/industries/');
+  if (!isIndustry) return null;
+  const lang = meta.lang || 'es';
+  const slug = pathname.split('/').pop();
+  const names = lang === 'en' ? INDUSTRY_NAMES_EN : INDUSTRY_NAMES_ES;
+  const name = names[slug];
+  if (!name) return null;
+  const pricingUrl = lang === 'en' ? `${SITE}/en/pricing` : `${SITE}/pricing`;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Service',
+    name,
+    serviceType: lang === 'en' ? `POS system for ${name}` : `Sistema POS para ${name}`,
+    description: meta.desc || name,
+    provider: { '@type': 'Organization', '@id': `${SITE}/#organization`, name: 'Terminal X' },
+    areaServed: { '@type': 'Country', name: 'Dominican Republic' },
+    inLanguage: lang === 'en' ? 'en' : 'es-DO',
+    url: `${SITE}${pathname}`,
+    offers: {
+      '@type': 'Offer',
+      url: pricingUrl,
+      priceCurrency: 'DOP',
+      availability: 'https://schema.org/InStock',
+    },
+  };
+}
+
+// WebSite + SearchAction on '/' — primes Google sitelink searchbox.
+// `/blog?q=` is the declared target even before in-app search is wired; Google
+// indexes the action and surfaces the box once enough authority accrues.
+function buildWebSiteSchema(pathname) {
+  if (pathname !== '/' && pathname !== '/en' && pathname !== '/en/') return null;
+  const isEn = pathname.startsWith('/en');
+  const base = isEn ? `${SITE}/en` : SITE;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    '@id': `${SITE}/#website`,
+    url: base,
+    name: 'Terminal X',
+    inLanguage: isEn ? 'en' : 'es-DO',
+    publisher: { '@type': 'Organization', '@id': `${SITE}/#organization` },
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${base}/blog?q={search_term_string}`,
+      },
+      'query-input': 'required name=search_term_string',
     },
   };
 }
@@ -742,9 +813,18 @@ function injectRouteMeta(html, pathname, meta) {
   const article = buildArticleSchema(pathname, meta);
   if (article) ldBlocks.push(JSON.stringify(article));
   const product = buildProductSchema(pathname, meta);
-  if (product) ldBlocks.push(JSON.stringify(product));
+  if (product) {
+    // Per-tier emission returns an array; flatten each Product into its own
+    // <script> tag so Google can pick them up individually.
+    const products = Array.isArray(product) ? product : [product];
+    for (const p of products) ldBlocks.push(JSON.stringify(p));
+  }
   const faqPage = buildFAQPageSchema(pathname, meta);
   if (faqPage) ldBlocks.push(JSON.stringify(faqPage));
+  const service = buildServiceSchema(pathname, meta);
+  if (service) ldBlocks.push(JSON.stringify(service));
+  const website = buildWebSiteSchema(pathname);
+  if (website) ldBlocks.push(JSON.stringify(website));
   if (ldBlocks.length) {
     const tags = ldBlocks
       .map((j) => `<script type="application/ld+json">${j}</script>`)
