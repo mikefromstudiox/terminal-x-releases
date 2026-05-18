@@ -2520,6 +2520,20 @@ export function BusinessFeatureToggles() {
     ),
   })
 
+  // 2026-05-18 — Conteo físico opt-in. Default ON for stock-tracked
+  // verticals (retail, dealership, restaurant, hybrid, mechanic, licoreria,
+  // meat_market). Default OFF for service-only verticals. Carwash, salon,
+  // foodtruck etc that also sell SKUs (bar drinks, accessories, snacks)
+  // can opt in here so the 'Conteo Fisico' sidebar entry shows up.
+  toggles.push({
+    name: 'inventory_count',
+    title: L('Conteo físico de inventario', 'Physical inventory count'),
+    desc: L(
+      'Muestra la opción "Conteo Físico" en el menú de Inventario. Útil para negocios de servicios que también venden productos (carwash con bar, salón con productos, taller con accesorios).',
+      'Shows the "Physical Count" option in the Inventory menu. Useful for service businesses that also sell products (carwash with a bar, salon with products, mechanic with accessories).',
+    ),
+  })
+
   return (
     <div className="space-y-2">
       {toggles.map((t, i) => {

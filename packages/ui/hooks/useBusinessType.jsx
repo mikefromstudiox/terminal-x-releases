@@ -253,9 +253,19 @@ export function BusinessTypeProvider({ children }) {
                 flags.isHybrid  || flags.isDealership || flags.isRestaurant ||
                 flags.isFoodTruck || flags.isService)
     }
+    // 2026-05-18 — Conteo físico (physical inventory count). Defaults ON for
+    // verticals that track SKU stock; OFF for service-only verticals. Owner
+    // can opt-in via the Funciones de Negocio toggle (a carwash that sells
+    // bar drinks, accessories, snacks needs it).
+    if (featureName === 'inventory_count') {
+      return !!(flags.isRetail || flags.isLicoreria || flags.isMeatMarket ||
+                flags.isDealership || flags.isRestaurant || flags.isFoodTruck ||
+                flags.isMechanic || flags.isHybrid)
+    }
     return false
   }, [featureOverrides, subtypeConfig, tiendaSubtype, flags.isLicoreria, flags.isCarniceria,
-      flags.isCarWash, flags.isMechanic, flags.isSalon, flags.isHybrid, flags.isDealership, flags.isRestaurant, flags.isFoodTruck, flags.isService])
+      flags.isCarWash, flags.isMechanic, flags.isSalon, flags.isHybrid, flags.isDealership, flags.isRestaurant, flags.isFoodTruck, flags.isService,
+      flags.isRetail, flags.isMeatMarket])
 
   // SECURITY: while settings.get() is in flight, do NOT render children. Until
   // we know the actual business_type / tienda_subtype, every screen below

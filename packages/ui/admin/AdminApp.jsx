@@ -309,19 +309,14 @@ export default function AdminApp({ supabase }) {
         {/* Subtle ambient red glow top-left of sidebar */}
         <div className="absolute top-0 left-0 w-56 h-56 bg-[#b3001e]/10 blur-[80px] pointer-events-none" />
 
-        <div className="relative flex items-center justify-between px-5 py-6 border-b border-white/10">
+        {/* Header — logo only. Theme toggle moved to the bottom panel above
+            ES/EN per Mike's 2026-05-18 spec. Keeps the top breathing-room
+            clean and groups all controls (theme + lang + logout) together. */}
+        <div className="relative flex items-center justify-start px-5 py-6 border-b border-white/10">
           <div className="flex items-center gap-0">
             <span className="text-[22px] font-black tracking-[3px] text-white leading-none -mt-1">TERMINAL</span>
             <img src={logoImg} alt="X" className="h-8 w-auto object-contain" draggable="false" />
           </div>
-          <motion.button
-            onClick={theme.toggle}
-            whileTap={{ scale: 0.92 }}
-            title={theme.preference === 'system' ? (lang === 'es' ? 'Sistema' : 'System') : theme.preference === 'dark' ? (lang === 'es' ? 'Modo dia' : 'Day mode') : (lang === 'es' ? 'Modo noche' : 'Night mode')}
-            className="p-2 rounded-lg text-[#b3001e] hover:text-white hover:bg-[#b3001e]/15 transition-colors"
-          >
-            {theme.preference === 'system' ? <Monitor size={16} /> : theme.preference === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-          </motion.button>
         </div>
 
         <nav className="relative flex-1 py-5 px-3 space-y-1">
@@ -354,6 +349,18 @@ export default function AdminApp({ supabase }) {
         </nav>
 
         <div className="relative p-3 border-t border-white/10 space-y-2">
+          {/* Theme toggle — moved here from the top header 2026-05-18. Sits
+              directly above ES/EN so all sidebar controls live together. */}
+          <motion.button
+            onClick={theme.toggle}
+            whileTap={{ scale: 0.96 }}
+            title={theme.preference === 'system' ? (lang === 'es' ? 'Sistema' : 'System') : theme.preference === 'dark' ? (lang === 'es' ? 'Modo dia' : 'Day mode') : (lang === 'es' ? 'Modo noche' : 'Night mode')}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[12px] text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+          >
+            {theme.preference === 'system' ? <Monitor size={14} /> : theme.preference === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            <span>{theme.preference === 'system' ? (lang === 'es' ? 'Sistema' : 'System') : theme.preference === 'dark' ? (lang === 'es' ? 'Modo dia' : 'Day mode') : (lang === 'es' ? 'Modo noche' : 'Night mode')}</span>
+          </motion.button>
+
           <div className="flex items-center justify-center gap-0.5 bg-white/5 rounded-full p-0.5 relative">
             {['es', 'en'].map(l => (
               <button

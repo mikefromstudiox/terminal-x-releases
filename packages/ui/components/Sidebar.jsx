@@ -418,11 +418,15 @@ const NAV = [
     hasBadge: 'lowStock',
     children: [
       { to: '/inventory',      es: 'Productos',       en: 'Products' },
-      // Conteo Fisico is only meaningful where stock is actually tracked. The
-      // wash/salon/prestamos verticals have no SKUs to count, so hide it there
-      // — the route itself stays routable for deep links.
+      // Conteo Fisico is most relevant for stock-tracked verticals (default
+      // on for retail/dealership/restaurant/hybrid/mechanic/licoreria/
+      // meat_market via the `inventory_count` business-feature default).
+      // 2026-05-18 — Now ALSO appears for any vertical that has opted in
+      // via Config → Funciones de Negocio → 'Conteo físico' toggle. A
+      // carwash that sells drinks/snacks/accessories needs it.
+      // The route itself stays routable for deep links regardless.
       { to: '/conteo-fisico',  es: 'Conteo Fisico',   en: 'Physical Count',
-        businessTypes: ['retail','dealership','restaurant','hybrid','mechanic','licoreria','meat_market'] },
+        feature: 'inventory_count' },
     ],
   },
   {
