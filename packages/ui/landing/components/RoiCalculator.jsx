@@ -273,7 +273,7 @@ export default function RoiCalculator({ lang = 'es' }) {
                 <span className="text-xl font-bold text-white/70 ml-1">{t.perMonth}</span>
               </div>
               <div className="mt-4 text-sm text-white/85">
-                <span className="opacity-75">{t.recommended}: </span>
+                <span className="opacity-90">{t.recommended}: </span>
                 <span className="font-bold">{TIER_LABELS[tierKey]} · RD${txPrice.toLocaleString('es-DO')}{t.perMonth}</span>
               </div>
             </div>

@@ -340,6 +340,7 @@ section.bg-black .text-\[\#b3001e\],
 .bg-black\/95 .text-\[\#b3001e\],
 .bg-\[\#b3001e\]\/15 .text-\[\#b3001e\],
 .bg-\[\#b3001e\]\/10 .text-\[\#b3001e\],
-.bg-\[\#b3001e\]\/20 .text-\[\#b3001e\] {
+.bg-\[\#b3001e\]\/20 .text-\[\#b3001e\],
+.bg-\[\#b3001e\]\/20.text-\[\#b3001e\] {
   color: #ff2d4f;
 }
