@@ -37,7 +37,7 @@
     { "source": "/fe/aprobacioncomercial/api/ecf", "destination": "/api/fe?action=aprobacion" },
     { "source": "/api/fe/:action", "destination": "/api/fe?action=:action" },
     { "source": "/blog/:slug", "destination": "/index.html" },
-    { "source": "/((?!api/|assets/|icons/|hero/|logos/|preview/|screenshots/|fe/|sitemap.xml|robots.txt|og-image\\.(png|svg)|manifest\\.json|ga-bootstrap\\.js|qz-loader\\.js).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|fe/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
