@@ -1097,13 +1097,13 @@ export function createWebAPI(supabase, businessId) {
             ? null : Number(clean.price_pedidos_ya)
         }
         clean.updated_at = new Date().toISOString()
-        throwSupaError(await supabase.from('inventory_items').update(clean).in('id', ids).eq('business_id', bid))
+        await assertAffected(supabase.from('inventory_items').update(clean).in('id', ids).eq('business_id', bid).select('id'), 'web.inventory.bulkUpdate', { allowZero: true })
         return ids.length
       }, 'web.inventory.bulkUpdate'),
 
       delete: (data) => tryWrite(async () => {
         const id = typeof data === 'object' ? data.id : data
-        throwSupaError(await supabase.from('inventory_items').update({ active: false }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('inventory_items').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.inventory.softDelete')
       }, 'web.inventory.delete'),
 
       adjust: ({ id, supabase_id, delta, notes, userId }) => tryWrite(async () => {
@@ -1115,7 +1115,7 @@ export function createWebAPI(supabase, businessId) {
         const lookupVal = id || supabase_id
         const current = throwSupaError(await supabase.from('inventory_items').select('id, quantity, supabase_id, name').eq(lookupCol, lookupVal).eq('business_id', bid).single())
         const newQty = Math.max(0, (current.quantity || 0) + delta)
-        throwSupaError(await supabase.from('inventory_items').update({ quantity: newQty }).eq('id', current.id).eq('business_id', bid))
+        await assertAffected(supabase.from('inventory_items').update({ quantity: newQty }).eq('id', current.id).eq('business_id', bid).select('id'), 'web.inventory.adjustQty')
         await logActivity({ event_type: 'inventory_adjusted', severity: 'info',
           target_type: 'inventory_item', target_id: current.id, target_name: current?.name || `#${current.id}`,
           amount: delta,
