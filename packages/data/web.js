@@ -2143,7 +2143,7 @@ export function createWebAPI(supabase, businessId) {
           await logActivity({ event_type: 'empleado_deleted', severity: 'warn', target_type: 'empleado', target_id: id, target_name: name })
           return { deleted: true }
         }
-        try { throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid)) }
+        try { await assertAffected(supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }
         catch (err) { try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'web.empleados.soft_delete_fallback', extra: { empleado_id: id, business_id: bid, original_error: error?.message } }) } catch {} }
         await logActivity({ event_type: 'empleado_deactivated', severity: 'warn', target_type: 'empleado', target_id: id, target_name: name, reason: error.message })
         return { softDeleted: true, reason: error.message }
@@ -2204,7 +2204,7 @@ export function createWebAPI(supabase, businessId) {
         }))
       }, []),
       remove: (id) => tryWrite(async () => {
-        throwSupaError(await supabase.from('payroll_runs').delete().eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('payroll_runs').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete')
       }, 'web.payrollRuns.remove'),
     },
 
@@ -2382,7 +2382,7 @@ export function createWebAPI(supabase, businessId) {
         // empleados.salary to whatever becomes the new latest row.
         const { data: row } = await supabase.from('salary_changes').select('empleado_supabase_id').eq('id', id).eq('business_id', bid).maybeSingle()
         if (!row?.empleado_supabase_id) throw new Error('No se encontró el cambio de salario (id ' + id + ')')
-        throwSupaError(await supabase.from('salary_changes').delete().eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('salary_changes').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete')
         const { data: latest } = await supabase.from('salary_changes').select('new_salary')
           .eq('business_id', bid).eq('empleado_supabase_id', row.empleado_supabase_id)
           .order('effective_date', { ascending: false }).order('id', { ascending: false })
@@ -2439,7 +2439,7 @@ export function createWebAPI(supabase, businessId) {
       addLoyaltyPoints: ({ id, delta }) => tryWrite(async () => {
         const { data: cl } = await supabase.from('clients').select('loyalty_points').eq('id', id).eq('business_id', bid).single()
         const next = Math.max(0, Number(cl?.loyalty_points || 0) + Number(delta || 0))
-        throwSupaError(await supabase.from('clients').update({ loyalty_points: next }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('clients').update({ loyalty_points: next }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return next
       }, 'web.clients.addLoyaltyPoints'),
 
@@ -2447,7 +2447,7 @@ export function createWebAPI(supabase, businessId) {
         const { data: cl } = await supabase.from('clients').select('balance').eq('id', id).eq('business_id', bid).single()
         if (cl) {
           const newBal = Math.max(0, (cl.balance || 0) + delta)
-          throwSupaError(await supabase.from('clients').update({ balance: newBal }).eq('id', id).eq('business_id', bid))
+          await assertAffected(supabase.from('clients').update({ balance: newBal }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         }
       }, 'web.clients.updateBalance'),
 
@@ -4404,7 +4404,7 @@ export function createWebAPI(supabase, businessId) {
         } else if (status === 'done') {
           patch.completed_at = now
         }
-        throwSupaError(await supabase.from('queue').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('queue').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       }, 'web.queue.updateStatus'),
 
       delete: (data) => tryWrite(async () => {
@@ -5340,7 +5340,7 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.dgii.addCompra'),
 
       deleteCompra: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('compras_607').delete().eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('compras_607').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete')
       }, 'web.dgii.deleteCompra'),
     },
 
@@ -6777,8 +6777,8 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('vehicles').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('vehicles').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('vehicles').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('vehicles').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('vehicles').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
       byClient: (clientId) => tryOr(async () => throwSupaError(await supabase.from('vehicles').select('*').eq('business_id', bid).eq('client_id', clientId).eq('active', true).order('created_at', { ascending: false })), []),
     },
 
@@ -6790,9 +6790,9 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('service_bays').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('service_bays').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      setStatus: (id, status, workOrderId) => tryWrite(async () => { throwSupaError(await supabase.from('service_bays').update({ status, current_work_order_id: workOrderId || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('service_bays').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('service_bays').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
+      setStatus: (id, status, workOrderId) => tryWrite(async () => { await assertAffected(supabase.from('service_bays').update({ status, current_work_order_id: workOrderId || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('service_bays').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     // ── Work Orders ─────────────────────────────────────────────────────────
@@ -6839,16 +6839,16 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('work_orders').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_orders').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('work_orders').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
       updateStatus: ({ id, status }) => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'completed' || status === 'closed' || status === 'facturado') patch.completed_date = new Date().toISOString()
-        throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       }),
       setStatus: (id, status) => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'completed' || status === 'closed') patch.completed_date = new Date().toISOString()
-        throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       }),
       addItem: ({ work_order_id, type, name, qty, quantity, unit_price, description, warranty_months, inventory_item_id }) => tryWrite(async () => {
         const q = Number(quantity ?? qty ?? 1)
@@ -6876,37 +6876,37 @@ export function createWebAPI(supabase, businessId) {
           const q = rest.quantity !== undefined ? Number(rest.quantity) : Number(cur.quantity)
           const p = rest.unit_price !== undefined ? Number(rest.unit_price) : Number(cur.unit_price)
           patch.total = q * p
-          throwSupaError(await supabase.from('work_order_items').update(patch).eq('id', item_id).eq('business_id', bid))
+          await assertAffected(supabase.from('work_order_items').update(patch).eq('id', item_id).eq('business_id', bid).select('id'), 'web.bulk.update')
           await recalcWorkOrderTotalsWeb(supabase, bid, cur.work_order_id)
           return { id: item_id }
         }
-        throwSupaError(await supabase.from('work_order_items').update(patch).eq('id', item_id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_order_items').update(patch).eq('id', item_id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { id: item_id }
       }),
       deleteItem: ({ item_id }) => tryWrite(async () => {
         const { data: cur } = await supabase.from('work_order_items').select('work_order_id').eq('id', item_id).eq('business_id', bid).single()
-        throwSupaError(await supabase.from('work_order_items').delete().eq('id', item_id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_order_items').delete().eq('id', item_id).eq('business_id', bid).select('id'), 'web.bulk.delete')
         if (cur?.work_order_id) await recalcWorkOrderTotalsWeb(supabase, bid, cur.work_order_id)
       }),
       saveInspection: ({ id, inspection }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('work_orders').update({ inspection_json: inspection || {}, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_orders').update({ inspection_json: inspection || {}, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       }),
       generateApprovalToken: ({ id }) => tryWrite(async () => {
         const token = (crypto.randomUUID().replace(/-/g,'') + crypto.randomUUID().replace(/-/g,'').slice(0,16))
         const { data: wo } = await supabase.from('work_orders').select('supabase_id').eq('id', id).eq('business_id', bid).single()
-        throwSupaError(await supabase.from('work_orders').update({ customer_approval_token: token, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_orders').update({ customer_approval_token: token, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { token, work_order_supabase_id: wo?.supabase_id || null }
       }),
       approveEstimate: ({ id, signature_url }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('work_orders').update({ status: 'aprobado', estimate_approved_at: new Date().toISOString(), customer_signature_url: signature_url || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_orders').update({ status: 'aprobado', estimate_approved_at: new Date().toISOString(), customer_signature_url: signature_url || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       }),
       setPartsOrder: ({ id, expected_parts_arrival }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('work_orders').update({ status: 'awaiting_parts', expected_parts_arrival: expected_parts_arrival || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_orders').update({ status: 'awaiting_parts', expected_parts_arrival: expected_parts_arrival || null, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       }),
       close: ({ id, odometer_out_km }) => tryWrite(async () => {
         const patch = { status: 'closed', completed_date: new Date().toISOString(), updated_at: new Date().toISOString() }
         if (odometer_out_km != null) patch.odometer_out_km = Number(odometer_out_km)
-        throwSupaError(await supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_orders').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         if (odometer_out_km != null) {
           const { data: wo } = await supabase.from('work_orders').select('vehicle_id').eq('id', id).eq('business_id', bid).single()
           if (wo?.vehicle_id) {
@@ -6919,7 +6919,7 @@ export function createWebAPI(supabase, businessId) {
           }
         }
       }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('work_orders').delete().eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('work_orders').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete') }),
     },
 
     // ── Work Order Items ────────────────────────────────────────────────────
@@ -6930,8 +6930,8 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('work_order_items').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid }).select('id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('work_order_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('work_order_items').delete().eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('work_order_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('work_order_items').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete') }),
     },
 
     // ── Dealership: Vehicle Inventory (units for sale) ──────────────────────
@@ -6947,13 +6947,13 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('vehicle_inventory').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id, supabase_id').single())
         return row
       })),
-      update: (id, data) => withDealershipQ('vehicleInventory_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('vehicle_inventory').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
+      update: (id, data) => withDealershipQ('vehicleInventory_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('vehicle_inventory').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } })),
       setStatus: (id, status) => withDealershipQ('vehicleInventory_setStatus', { id, status }, () => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'sold') patch.sold_date = new Date().toISOString()
-        throwSupaError(await supabase.from('vehicle_inventory').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('vehicle_inventory').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       })),
-      delete: (id) => withDealershipQ('vehicleInventory_delete', { id }, () => tryWrite(async () => { throwSupaError(await supabase.from('vehicle_inventory').update({ active: false }).eq('id', id).eq('business_id', bid)) })),
+      delete: (id) => withDealershipQ('vehicleInventory_delete', { id }, () => tryWrite(async () => { await assertAffected(supabase.from('vehicle_inventory').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') })),
       uploadPhoto: (vehicleId, file) => tryWrite(async () => {
         if (!vehicleId || !file) return null
         const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase()
@@ -6965,13 +6965,13 @@ export function createWebAPI(supabase, businessId) {
         if (!url) throw new Error('No public URL')
         const cur = throwSupaError(await supabase.from('vehicle_inventory').select('photo_urls').eq('id', vehicleId).eq('business_id', bid).single())
         const next = Array.isArray(cur?.photo_urls) ? [...cur.photo_urls, url] : [url]
-        throwSupaError(await supabase.from('vehicle_inventory').update({ photo_urls: next, updated_at: new Date().toISOString() }).eq('id', vehicleId).eq('business_id', bid))
+        await assertAffected(supabase.from('vehicle_inventory').update({ photo_urls: next, updated_at: new Date().toISOString() }).eq('id', vehicleId).eq('business_id', bid).select('id'), 'web.bulk.update')
         return url
       }),
       removePhoto: (vehicleId, url) => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('vehicle_inventory').select('photo_urls').eq('id', vehicleId).eq('business_id', bid).single())
         const next = Array.isArray(cur?.photo_urls) ? cur.photo_urls.filter(u => u !== url) : []
-        throwSupaError(await supabase.from('vehicle_inventory').update({ photo_urls: next, updated_at: new Date().toISOString() }).eq('id', vehicleId).eq('business_id', bid))
+        await assertAffected(supabase.from('vehicle_inventory').update({ photo_urls: next, updated_at: new Date().toISOString() }).eq('id', vehicleId).eq('business_id', bid).select('id'), 'web.bulk.update')
         try {
           const m = url.match(/vehicle-photos\/(.+)$/)
           if (m) await supabase.storage.from('vehicle-photos').remove([m[1]])
@@ -7019,7 +7019,7 @@ export function createWebAPI(supabase, businessId) {
         }).select('id, supabase_id').single())
         return row
       }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('vehicle_documents').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('vehicle_documents').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     // ── v2.16.0 Taller Mecánico hardening ───────────────────────────────────
@@ -7032,8 +7032,8 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('aseguradoras').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true, ecf_mode: data?.ecf_mode === 'monthly_batch' ? 'monthly_batch' : 'per_wo' }).select('id, supabase_id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('aseguradoras').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('aseguradoras').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('aseguradoras').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('aseguradoras').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     suppliers: {
@@ -7043,8 +7043,8 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('suppliers').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id, supabase_id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('suppliers').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('suppliers').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('suppliers').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('suppliers').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     partsOrders: {
@@ -7064,14 +7064,14 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('parts_orders').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, status: data?.status || 'pendiente' }).select('id, supabase_id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('parts_orders').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('parts_orders').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
       markReceived: (id, received_barcode) => tryWrite(async () => {
         const patch = { status: 'recibido', received_at: new Date().toISOString(), updated_at: new Date().toISOString() }
         if (received_barcode) patch.received_barcode = received_barcode
-        throwSupaError(await supabase.from('parts_orders').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('parts_orders').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { id }
       }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('parts_orders').update({ status: 'cancelado', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('parts_orders').update({ status: 'cancelado', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     workOrderPhotos: {
@@ -7116,7 +7116,7 @@ export function createWebAPI(supabase, businessId) {
           try { await supabase.storage.from('mechanic-photos').remove([row.storage_path]) }
           catch (e) { console.warn('[mechanic-photos] storage.remove failed', row.storage_path, e?.message || e) }
         }
-        throwSupaError(await supabase.from('work_order_photos').delete().eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('work_order_photos').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete')
       }),
     },
 
@@ -7139,7 +7139,7 @@ export function createWebAPI(supabase, businessId) {
         } catch (e) { console.warn('[insuranceBatches.create] activity log failed', e?.message || e) }
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('insurance_batches').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('insurance_batches').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
       workOrdersFor: (aseguradora_supabase_id, period_month) => tryOr(async () => {
         if (!aseguradora_supabase_id || !period_month) return []
         const month = String(period_month).slice(0, 7)
@@ -7151,7 +7151,7 @@ export function createWebAPI(supabase, businessId) {
         const path = `${bid}/insurance-batches/${id}-${Date.now()}.pdf`
         const { error } = await supabase.storage.from('mechanic-photos').upload(path, file, { contentType: 'application/pdf', upsert: true })
         if (error) throw error
-        throwSupaError(await supabase.from('insurance_batches').update({ pdf_storage_path: path, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('insurance_batches').update({ pdf_storage_path: path, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return path
       }),
     },
@@ -7240,16 +7240,16 @@ export function createWebAPI(supabase, businessId) {
         }
         return row
       })),
-      update: (id, data) => withDealershipQ('salesDeals_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('sales_deals').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
+      update: (id, data) => withDealershipQ('salesDeals_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('sales_deals').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } })),
       close: (id, ticketInfo) => withDealershipQ('salesDeals_close', { id, ticketInfo }, () => tryWrite(async () => {
         const patch = { status: 'closed', closed_at: new Date().toISOString(), updated_at: new Date().toISOString() }
         if (ticketInfo?.ticket_id) patch.ticket_id = ticketInfo.ticket_id
         if (ticketInfo?.ticket_supabase_id) patch.ticket_supabase_id = ticketInfo.ticket_supabase_id
-        throwSupaError(await supabase.from('sales_deals').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('sales_deals').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       })),
       markCommissionPaid: (id) => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('sales_deals').select('commission_amount, salesperson_supabase_id').eq('id', id).eq('business_id', bid).single())
-        throwSupaError(await supabase.from('sales_deals').update({ commission_paid: true, commission_paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('sales_deals').update({ commission_paid: true, commission_paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         await logActivity({
           event_type: 'deal_commission_paid', severity: 'info',
           target_type: 'sales_deal', target_id: id,
@@ -7264,7 +7264,7 @@ export function createWebAPI(supabase, businessId) {
         if (salespersonSupabaseId) q = q.eq('salesperson_supabase_id', salespersonSupabaseId)
         return throwSupaError(await q.order('closed_at', { ascending: false }))
       }, []),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('sales_deals').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('sales_deals').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     // ── Dealership: Vehicle Titulo (INTRANT matricula / traspaso) ───────────
@@ -7292,7 +7292,7 @@ export function createWebAPI(supabase, businessId) {
         }
         const { id: _id, supabase_id: _sid, business_id: _bid, ...rest } = data || {}
         if (existing?.id) {
-          throwSupaError(await supabase.from('vehicle_titulo').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', existing.id).eq('business_id', bid))
+          await assertAffected(supabase.from('vehicle_titulo').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', existing.id).eq('business_id', bid).select('id'), 'web.bulk.update')
           return { id: existing.id, supabase_id: existing.supabase_id }
         }
         const row = throwSupaError(await supabase.from('vehicle_titulo').insert({
@@ -7305,7 +7305,7 @@ export function createWebAPI(supabase, businessId) {
         return row
       })),
       delete: (id) => withDealershipQ('vehicleTitulo_delete', { id }, () => tryWrite(async () => {
-        throwSupaError(await supabase.from('vehicle_titulo').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('vehicle_titulo').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       })),
     },
 
@@ -7328,7 +7328,7 @@ export function createWebAPI(supabase, businessId) {
         const { id: _id, supabase_id: _sid, business_id: _bid, ...rest } = data || {}
         let row
         if (data?.id) {
-          throwSupaError(await supabase.from('vehicle_reservations').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('vehicle_reservations').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', data.id).eq('business_id', bid).select('id'), 'web.bulk.update')
           row = throwSupaError(await supabase.from('vehicle_reservations').select('*').eq('id', data.id).eq('business_id', bid).single())
         } else {
           row = throwSupaError(await supabase.from('vehicle_reservations').insert({
@@ -7453,7 +7453,7 @@ export function createWebAPI(supabase, businessId) {
         const sid = data?.supabase_id || crypto.randomUUID()
         const { id: _id, supabase_id: _sid, business_id: _bid, ...rest } = data || {}
         if (data?.id) {
-          throwSupaError(await supabase.from('vehicle_warranties').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('vehicle_warranties').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', data.id).eq('business_id', bid).select('id'), 'web.bulk.update')
           return throwSupaError(await supabase.from('vehicle_warranties').select('*').eq('id', data.id).eq('business_id', bid).single())
         }
         if (!rest.sales_deal_supabase_id) throw new Error('sales_deal_supabase_id requerido')
@@ -7527,7 +7527,7 @@ export function createWebAPI(supabase, businessId) {
         const sid = data?.supabase_id || crypto.randomUUID()
         const { id: _id, supabase_id: _sid, business_id: _bid, ...rest } = data || {}
         if (data?.id) {
-          throwSupaError(await supabase.from('bank_preapprovals').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('bank_preapprovals').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', data.id).eq('business_id', bid).select('id'), 'web.bulk.update')
           return throwSupaError(await supabase.from('bank_preapprovals').select('*').eq('id', data.id).eq('business_id', bid).single())
         }
         if (!rest.bank) throw new Error('bank requerido')
@@ -7576,16 +7576,16 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('test_drives').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       })),
-      update: (id, data) => withDealershipQ('testDrives_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('test_drives').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
-      complete: (id, notes) => withDealershipQ('testDrives_complete', { id, notes }, () => tryWrite(async () => { throwSupaError(await supabase.from('test_drives').update({ completed_at: new Date().toISOString(), notes, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) })),
+      update: (id, data) => withDealershipQ('testDrives_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('test_drives').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } })),
+      complete: (id, notes) => withDealershipQ('testDrives_complete', { id, notes }, () => tryWrite(async () => { await assertAffected(supabase.from('test_drives').update({ completed_at: new Date().toISOString(), notes, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') })),
       setOutcome: (id, opts) => withDealershipQ('testDrives_setOutcome', { id, opts }, () => tryWrite(async () => {
         const { outcome, outcomeNotes, dealSupabaseId } = opts || {}
         const patch = { outcome, outcome_notes: outcomeNotes || null, updated_at: new Date().toISOString() }
         if (dealSupabaseId) patch.deal_supabase_id = dealSupabaseId
         if (outcome && !patch.completed_at) patch.completed_at = new Date().toISOString()
-        throwSupaError(await supabase.from('test_drives').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('test_drives').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       })),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('test_drives').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('test_drives').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     // ── Dealership: Leads / Sales Pipeline ──────────────────────────────────
@@ -7600,10 +7600,10 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('leads').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       })),
-      update: (id, data) => withDealershipQ('leads_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('leads').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } })),
+      update: (id, data) => withDealershipQ('leads_update', { id, data }, () => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('leads').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } })),
       setStage: (id, stage, extra) => withDealershipQ('leads_setStage', { id, stage, extra }, () => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('leads').select('stage, name').eq('id', id).eq('business_id', bid).single())
-        throwSupaError(await supabase.from('leads').update({ stage, ...(extra || {}), updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('leads').update({ stage, ...(extra || {}), updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         if (cur && cur.stage !== stage) {
           await logActivity({
             event_type: 'pipeline_stage_change', severity: 'info',
@@ -7618,7 +7618,7 @@ export function createWebAPI(supabase, businessId) {
         const patch = { last_contacted_at: new Date().toISOString(), updated_at: new Date().toISOString() }
         if (nextFollowupAt) patch.next_followup_at = nextFollowupAt
         if (notes !== undefined) patch.notes = notes
-        throwSupaError(await supabase.from('leads').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('leads').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         await logActivity({
           event_type: 'pipeline_followup_logged', severity: 'info',
           target_type: 'lead', target_id: id, target_name: cur?.name || null,
@@ -7628,7 +7628,7 @@ export function createWebAPI(supabase, businessId) {
       overdue: () => tryOr(async () => {
         return throwSupaError(await supabase.from('leads').select('*').eq('business_id', bid).eq('active', true).not('next_followup_at', 'is', null).lte('next_followup_at', new Date().toISOString()).not('stage', 'in', '(closed,lost)').order('next_followup_at'))
       }, []),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('leads').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('leads').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     // ── Appointments ────────────────────────────────────────────────────────
@@ -7694,9 +7694,9 @@ export function createWebAPI(supabase, businessId) {
         } catch (e) { console.warn('[appointments.create] reminder schedule failed:', e?.message || e) }
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('appointments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      setStatus: (id, status) => tryWrite(async () => { throwSupaError(await supabase.from('appointments').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('appointments').delete().eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('appointments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
+      setStatus: (id, status) => tryWrite(async () => { await assertAffected(supabase.from('appointments').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('appointments').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete') }),
 
       // v2.16.1 — mark a salon appointment as no-show. Bumps the client's
       // no_show_count + stamps last_no_show_at. If a deposit was held, returns
@@ -7830,8 +7830,8 @@ export function createWebAPI(supabase, businessId) {
         const row = throwSupaError(await supabase.from('stylist_schedules').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
         return row
       }),
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('stylist_schedules').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('stylist_schedules').update({ active: false }).eq('id', id).eq('business_id', bid)) }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('stylist_schedules').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('stylist_schedules').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     // ── Loans ───────────────────────────────────────────────────────────────
@@ -7968,10 +7968,10 @@ export function createWebAPI(supabase, businessId) {
         const { id: _, supabase_id: __, business_id: ___, ...rest } = data
         return tryWriteOrQueue(
           { table: 'loans', op: 'update', payload: { id, supabase_id: data.supabase_id, ...rest }, business_id: bid },
-          async () => { throwSupaError(await supabase.from('loans').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
+          async () => { await assertAffected(supabase.from('loans').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } },
         )
       },
-      setStatus: (id, status) => tryWrite(async () => { throwSupaError(await supabase.from('loans').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)) }),
+      setStatus: (id, status) => tryWrite(async () => { await assertAffected(supabase.from('loans').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update') }),
     },
 
     // ── Loan Payments ───────────────────────────────────────────────────────
@@ -7994,7 +7994,7 @@ export function createWebAPI(supabase, businessId) {
           },
         )
       },
-      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; throwSupaError(await supabase.from('loan_payments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } }),
+      update: (id, data) => tryWrite(async () => { const { id: _, supabase_id: __, business_id: ___, ...rest } = data; await assertAffected(supabase.from('loan_payments').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } }),
     },
 
     // ── Pawn Items ──────────────────────────────────────────────────────────
@@ -8034,13 +8034,13 @@ export function createWebAPI(supabase, businessId) {
         const { id: _, supabase_id: __, business_id: ___, ...rest } = data
         return tryWriteOrQueue(
           { table: 'pawn_items', op: 'update', payload: { id, supabase_id: data.supabase_id, ...rest }, business_id: bid },
-          async () => { throwSupaError(await supabase.from('pawn_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
+          async () => { await assertAffected(supabase.from('pawn_items').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } },
         )
       },
       setStatus: (id, status) => tryWrite(async () => {
         const patch = { status, updated_at: new Date().toISOString() }
         if (status === 'redeemed')  patch.redemption_date = new Date().toISOString()
-        throwSupaError(await supabase.from('pawn_items').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('pawn_items').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         if (status === 'forfeited') await logActivity({ event_type: 'pawn_forfeited', severity: 'critical', target_type: 'pawn_item', target_id: id })
       }),
       byCode: (code) => tryOr(async () => {
@@ -8144,7 +8144,7 @@ export function createWebAPI(supabase, businessId) {
           async () => throwSupaError(await supabase.from('pawn_documents').insert(payload).select('id, supabase_id').single()),
         )
       },
-      delete: (id) => tryWrite(async () => { throwSupaError(await supabase.from('pawn_documents').delete().eq('id', id).eq('business_id', bid)) }),
+      delete: (id) => tryWrite(async () => { await assertAffected(supabase.from('pawn_documents').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete') }),
     },
 
     // ── Pawn Listings (publicar prenda decomisada para venta) ────────────────
@@ -8174,7 +8174,7 @@ export function createWebAPI(supabase, businessId) {
       },
       unpublish: (id) => tryWriteOrQueue(
         { table: 'pawn_listings', op: 'update', payload: { id, status: 'removed' }, business_id: bid },
-        async () => { throwSupaError(await supabase.from('pawn_listings').update({ status: 'removed', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid)); return { id } },
+        async () => { await assertAffected(supabase.from('pawn_listings').update({ status: 'removed', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update'); return { id } },
       ),
     },
 
@@ -8190,7 +8190,7 @@ export function createWebAPI(supabase, businessId) {
         return { count: payload.length }
       }),
       markPaid: ({ id, paid_amount }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('loan_schedule').update({ paid_amount, paid_at: new Date().toISOString(), status: 'paid', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('loan_schedule').update({ paid_amount, paid_at: new Date().toISOString(), status: 'paid', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
       }),
     },
 
@@ -8354,7 +8354,7 @@ export function createWebAPI(supabase, businessId) {
       }),
       update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
-        throwSupaError(await supabase.from('memberships').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('memberships').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { id }
       }),
       consume: ({ id }) => tryWrite(async () => {
@@ -8362,11 +8362,11 @@ export function createWebAPI(supabase, businessId) {
         if (!m) return { ok: false, error: 'not_found' }
         if (m.washes_used_this_period >= m.wash_quota_per_month) return { ok: false, error: 'quota_exceeded', remaining: 0 }
         const newUsed = m.washes_used_this_period + 1
-        throwSupaError(await supabase.from('memberships').update({ washes_used_this_period: newUsed, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('memberships').update({ washes_used_this_period: newUsed, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { ok: true, remaining: m.wash_quota_per_month - newUsed }
       }),
       delete: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('memberships').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('memberships').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return true
       }),
 
@@ -8427,11 +8427,11 @@ export function createWebAPI(supabase, businessId) {
         if (c.used_washes >= c.total_washes) return { ok: false, error: 'combo_exhausted' }
         const newUsed = c.used_washes + 1
         const newStatus = newUsed >= c.total_washes ? 'exhausted' : 'active'
-        throwSupaError(await supabase.from('wash_combos').update({ used_washes: newUsed, status: newStatus, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('wash_combos').update({ used_washes: newUsed, status: newStatus, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { ok: true, remaining: c.total_washes - newUsed }
       }),
       delete: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('wash_combos').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('wash_combos').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return true
       }),
     },
@@ -8475,7 +8475,7 @@ export function createWebAPI(supabase, businessId) {
         if (clean.nombre != null) clean.plan_name = clean.nombre
         if (clean.price_dop != null) clean.plan_price = clean.price_dop
         clean.updated_at = new Date().toISOString()
-        throwSupaError(await supabase.from('memberships').update(clean).eq('supabase_id', supabase_id).eq('business_id', bid))
+        await assertAffected(supabase.from('memberships').update(clean).eq('supabase_id', supabase_id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { supabase_id }
       }),
       archive: (supabase_id) => tryWrite(async () => {
@@ -8750,7 +8750,7 @@ export function createWebAPI(supabase, businessId) {
           }
           if (!Object.keys(patch).length) return null
           patch.updated_at = new Date().toISOString()
-          throwSupaError(await supabase.from('carniceria_corte_categories').update(patch).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('carniceria_corte_categories').update(patch).eq('id', data.id).eq('business_id', bid).select('id'), 'web.bulk.update')
           return throwSupaError(await supabase.from('carniceria_corte_categories').select('*').eq('id', data.id).maybeSingle())
         }),
         remove: (id) => tryWrite(async () => {
@@ -8891,7 +8891,7 @@ export function createWebAPI(supabase, businessId) {
           }
           if (!Object.keys(patch).length) return null
           patch.updated_at = new Date().toISOString()
-          throwSupaError(await supabase.from('recurring_orders').update(patch).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('recurring_orders').update(patch).eq('id', data.id).eq('business_id', bid).select('id'), 'web.bulk.update')
           return throwSupaError(await supabase.from('recurring_orders').select('*').eq('id', data.id).maybeSingle())
         }),
         remove: (id) => tryWrite(async () => {
@@ -8943,7 +8943,7 @@ export function createWebAPI(supabase, businessId) {
           }
           if (!Object.keys(patch).length) return null
           patch.updated_at = new Date().toISOString()
-          throwSupaError(await supabase.from('carniceria_scales').update(patch).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('carniceria_scales').update(patch).eq('id', data.id).eq('business_id', bid).select('id'), 'web.bulk.update')
           return throwSupaError(await supabase.from('carniceria_scales').select('*').eq('id', data.id).maybeSingle())
         }),
         remove: (id) => tryWrite(async () => {
@@ -9124,7 +9124,7 @@ export function createWebAPI(supabase, businessId) {
       }),
       update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
-        throwSupaError(await supabase.from('subscriptions').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('subscriptions').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { id }
       }),
       markBilled: (id) => tryWrite(async () => {
@@ -9139,7 +9139,7 @@ export function createWebAPI(supabase, businessId) {
         return { id }
       }),
       delete: (id) => tryWrite(async () => {
-        throwSupaError(await supabase.from('subscriptions').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('subscriptions').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return true
       }),
     },
@@ -9185,7 +9185,7 @@ export function createWebAPI(supabase, businessId) {
       }),
       update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
-        throwSupaError(await supabase.from('service_packages').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('service_packages').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { id }
       }),
       consume: ({ id }) => tryWrite(async () => {
@@ -9203,7 +9203,7 @@ export function createWebAPI(supabase, businessId) {
         return { ok: true, remaining }
       }),
       delete: (id) => tryWrite(async () => {
-        throwSupaError(await supabase.from('service_packages').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('service_packages').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return true
       }),
     },
@@ -9238,7 +9238,7 @@ export function createWebAPI(supabase, businessId) {
       update: (data) => tryWrite(async () => {
         const { id, ...rest } = data
         if (rest.status === 'closed' && !rest.closed_at) rest.closed_at = new Date().toISOString()
-        throwSupaError(await supabase.from('projects').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('projects').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.update')
         return { id }
       }),
     },
@@ -9293,7 +9293,7 @@ export function createWebAPI(supabase, businessId) {
         return row
       }),
       delete: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('client_service_rates').delete().eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('client_service_rates').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete')
         return true
       }),
     },
@@ -9355,7 +9355,7 @@ export function createWebAPI(supabase, businessId) {
         return row
       }),
       delete: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('client_item_prices').delete().eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('client_item_prices').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.bulk.delete')
         return true
       }),
       bulkImport: (rows) => tryWrite(async () => {
