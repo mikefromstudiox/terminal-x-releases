@@ -125,6 +125,26 @@ export function createContabilidadAPI(supabase, businessId) {
     }, [])
   }
   async function clientCreate(input) {
+    // 2026-05-18 Fix W — multi-firm cap. Pro PLUS = 10 clients, Pro MAX = unlimited.
+    // Reads plan from window.__txPlan (set by AuthContext from JWT app_metadata).
+    // Falls back to 10 cap if plan unknown (conservative).
+    try {
+      const plan = (typeof window !== 'undefined' && window.__txPlan) || 'pro_plus'
+      if (plan !== 'pro_max' && plan !== 'contabilidad_max') {
+        const { count } = await supabase.from(TBL.clients)
+          .select('*', { count: 'exact', head: true })
+          .eq('business_id', bid()).neq('status', 'archived')
+        const limit = 10
+        if ((count ?? 0) >= limit) {
+          throw new Error(`Plan ${plan} permite máximo ${limit} clientes (actual: ${count}). Actualiza a Pro MAX para clientes ilimitados.`)
+        }
+      }
+    } catch (e) {
+      if (e?.message?.includes('Plan')) throw e
+      // Read failure during cap check → log warn but allow insert (fail-open
+      // for legitimate users; the cap is a courtesy guard, not a security one).
+      try { window.__txReportError?.(e, { severity: 'warn', category: 'web.contabilidad.client_cap_check' }) } catch {}
+    }
     return tryWrite(() => supabase.from(TBL.clients).insert({
       supabase_id: uuid(),
       business_id: bid(),
