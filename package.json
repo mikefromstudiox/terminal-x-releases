@@ -1,6 +1,6 @@
 {
   "name": "terminal-x",
-  "version": "2.17.7",
+  "version": "2.17.8",
   "private": true,
   "description": "Terminal X - POS System for Car Wash, Retail & Services",
   "author": "Studio X",
@@ -148,7 +148,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Terminal X"
+      "shortcutName": "Terminal X",
+      "include": "build/installer.nsh"
     },
     "files": [
       "dist/**/*",
