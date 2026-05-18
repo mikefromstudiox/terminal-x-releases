@@ -28,23 +28,28 @@ mkdir(join(DIST, 'api', 'digest'))
 mkdir(join(DIST, 'lib'))
 mkdir(join(DIST, '.vercel'))
 
-// Top-level API functions (12-fn Vercel cap → consolidated via ?action= switches)
-// NOTE 2026-05-17: panel.js is INTENTIONALLY NOT copied. Per fc5878a, Vercel
-// auto-detects functions at REPO-ROOT /api/ first; the dist-web/api/panel.js
-// copy is silently IGNORED. Edit /api/panel.js (repo root) — NOT web/api/panel.js.
-// Copying it here was the silent cause of the 2026-05-17 dual-file drift that
-// killed Layer 3 cron_health_verifier (returned 400 Unknown action on every
-// tick). web/api/panel.js is now marked DEPRECATED at its top.
+// API functions — copy repo-root /api/ → dist-web/api/. Single source of truth.
+//
+// Stage 3 (FUTUREX §Tech debt) collapsed web/api/ → /api/. Per fc5878a's
+// finding (originally for panel.js, applies to all auto-detected functions),
+// Vercel auto-detects /api/* at REPO ROOT and ignores dist-web/api/* copies.
+// We keep the copy for the local manual deploy chain and as a backstop in
+// case the precedence rule changes — but the source must be /api/ now,
+// not web/api/, since web/api/ was deleted in Stage 3.
+//
+// panel.js stays excluded from the copy because Vercel's auto-detected
+// repo-root /api/panel.js is the production-live one; the copy would be
+// silently ignored at runtime and only create cosmetic confusion.
 const apiFiles = [
   'validate.js', 'rnc.js', 'ecf-sign.js',
   'dgii-cert-upload.js', 'staff-verify-auth.js', 'fe.js',
 ]
-for (const f of apiFiles) copyFileSync(join(ROOT, 'web/api', f), join(DIST, 'api', f))
+for (const f of apiFiles) copyFileSync(join(ROOT, 'api', f), join(DIST, 'api', f))
 
 // Sub-directory functions
-copyFileSync(join(ROOT, 'web/api/signup/provision.js'), join(DIST, 'api/signup/provision.js'))
-copyFileSync(join(ROOT, 'web/api/signup/lead.js'),     join(DIST, 'api/signup/lead.js'))
-copyFileSync(join(ROOT, 'web/api/digest/daily.js'),    join(DIST, 'api/digest/daily.js'))
+copyFileSync(join(ROOT, 'api/signup/provision.js'), join(DIST, 'api/signup/provision.js'))
+copyFileSync(join(ROOT, 'api/signup/lead.js'),     join(DIST, 'api/signup/lead.js'))
+copyFileSync(join(ROOT, 'api/digest/daily.js'),    join(DIST, 'api/digest/daily.js'))
 
 // LIB — copy repo-root /lib/ → dist-web/lib/. Single source of truth.
 //
