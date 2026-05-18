@@ -45,6 +45,28 @@
     <meta name="twitter:description" content="POS y facturación electrónica certificada en RD. Desde RD$995/mes." />
     <meta name="twitter:image" content="https://terminalxpos.com/og-image.png" />
 
+    <!-- Performance: preconnect / dns-prefetch to origins that are fetched
+         during/after first paint. Supabase is hit by auth + data; Sentry by
+         the renderer SDK when DSN is set. Saves ~100-300 ms RTT each on
+         mobile slow-4G. (CWV LCP/INP win.) -->
+    <link rel="preconnect" href="https://csppjsoirjflumaiipqw.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://csppjsoirjflumaiipqw.supabase.co" />
+    <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+    <link rel="dns-prefetch" href="https://www.google-analytics.com" />
+    <link rel="dns-prefetch" href="https://o4508177916559360.ingest.us.sentry.io" />
+
+    <!-- Performance: preload the hero LCP image (desktop POS mockup). The
+         responsive srcset/sizes mirrors HeroAnimated.jsx so the browser picks
+         the same candidate without double-download. (CWV LCP win.) -->
+    <link
+      rel="preload"
+      as="image"
+      href="/hero/desktop-pos.png"
+      imagesrcset="/hero/desktop-pos-sm.png 640w, /hero/desktop-pos.png 1280w"
+      imagesizes="(max-width: 768px) 50vw, 640px"
+      fetchpriority="high"
+    />
+
     <!-- Icons & PWA -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />

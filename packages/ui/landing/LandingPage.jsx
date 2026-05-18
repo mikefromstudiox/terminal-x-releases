@@ -1,5 +1,5 @@
 import { useNavigate, Link } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense, lazy } from 'react'
 import { Monitor, Shield, Zap, BarChart3, Receipt, Users, ArrowRight, ArrowUp, Check, X, Wifi, WifiOff, Printer, MessageSquare, MessageCircle, ChevronDown, ChevronUp, Clock, CreditCard, FileText, Lock, Smartphone, Star, TrendingUp, Headphones, Menu, ExternalLink, Globe, Banknote, Calculator, Crown, Award, BadgeCheck, Package, Gift, ClipboardList, Mail, IdCard, BookOpen } from 'lucide-react'
 import logoImg from '../assets/logo.webp'
 
@@ -7,11 +7,20 @@ import logoImg from '../assets/logo.webp'
 import HeroAnimated from './components/HeroAnimated'
 import DgiiComparison from './components/DgiiComparison'
 import VerticalFeatures from './components/VerticalFeatures'
-import FeatureMatrix from './components/FeatureMatrix'
-import RoiCalculator from './components/RoiCalculator'
-import DeadlineCta from './components/DeadlineCta'
+// Below-the-fold sections — lazy-split to shrink the landing entry bundle.
+// Suspense fallback reserves vertical space to avoid CLS while the chunk loads.
+const FeatureMatrix = lazy(() => import('./components/FeatureMatrix'))
+const RoiCalculator = lazy(() => import('./components/RoiCalculator'))
+const DeadlineCta   = lazy(() => import('./components/DeadlineCta'))
 import StickyMobileCta from './components/StickyMobileCta'
 import ExitIntentModal from './components/ExitIntentModal'
+
+// Placeholder block sized to the largest of the three sections so the lazy
+// swap is layout-shift-free (CLS = 0). Heights are min-h so the real section
+// can grow taller without reflow.
+const LazySkeleton = ({ minH = '480px', dark = false }) => (
+  <div style={{ minHeight: minH }} className={dark ? 'bg-black' : 'bg-white'} aria-hidden="true" />
+)
 
 // Marketing copy lives in copy.json so future edits don't touch code.
 import copy from './data/copy.json'
@@ -1020,10 +1029,14 @@ export default function LandingPage({ section, forceLang }) {
       </section>
 
       {/* SECTION 4.5: Feature Matrix — WHITE — full 60-row × 6-tier table */}
-      <FeatureMatrix lang={lang} />
+      <Suspense fallback={<LazySkeleton minH="720px" />}>
+        <FeatureMatrix lang={lang} />
+      </Suspense>
 
       {/* SECTION 4.6: ROI Calculator — BLACK — Grok-spec inputs (facturas, minutos, empleados) */}
-      <RoiCalculator lang={lang} />
+      <Suspense fallback={<LazySkeleton minH="560px" dark />}>
+        <RoiCalculator lang={lang} />
+      </Suspense>
 
       {/* SECTION 5: Support tiers — WHITE */}
       <section className="bg-white px-4 py-24 sm:px-6 lg:px-8">
@@ -1398,7 +1411,9 @@ export default function LandingPage({ section, forceLang }) {
       </section>
 
       {/* SECTION 9: Final CTA — BLACK — DeadlineCta with live countdown to May 15, 2026 */}
-      <DeadlineCta lang={lang} />
+      <Suspense fallback={<LazySkeleton minH="420px" dark />}>
+        <DeadlineCta lang={lang} />
+      </Suspense>
 
       {/* Footer — BLACK */}
       <footer className="bg-black border-t border-white/10 px-4 py-16 sm:px-6 lg:px-8">
