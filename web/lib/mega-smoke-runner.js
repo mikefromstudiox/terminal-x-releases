@@ -744,6 +744,122 @@ function buildMesasScenarios(sb, demoRegistry) {
   return out
 }
 
+// v2.17.8 — /config/servicios end-to-end flows: category bulk-renumber
+// (kills the orden=999 floating bug) + hard-delete of inactive services
+// (must succeed when unreferenced; FK count must be honest when referenced
+// so the UI pre-check blocks).
+function buildServicesScenarios(sb, demoRegistry) {
+  const out = []
+  const biz = demoRegistry.byType['carwash'] || Object.values(demoRegistry.byType)[0]
+  if (!biz || !isDemoBusinessName(biz.name)) {
+    return [{ id: 'services.no_demo', category: 'services', name: 'services target demo present', fn: async () => ({ ok: true, skip: true, detail: 'no demo business' }) }]
+  }
+
+  out.push({
+    id: 'services.category_reorder',
+    category: 'services',
+    name: 'category bulk-renumber → sequential orden 0..N-1',
+    fn: async () => {
+      const stamp = tag()
+      const names = [`MS-A-${stamp}`, `MS-B-${stamp}`, `MS-C-${stamp}`]
+      const ids = []
+      try {
+        for (const nombre of names) {
+          const r = await sb.from('categorias_servicio').insert({
+            supabase_id: newSid(), business_id: biz.id, nombre, orden: 999, active: true,
+          }).select('id').single()
+          if (r.error) return { ok: false, expected: 'category insert', observed: r.error.message }
+          ids.push(r.data.id)
+        }
+        for (let i = 0; i < ids.length; i++) {
+          const u = await sb.from('categorias_servicio').update({ orden: i }).eq('id', ids[i])
+          if (u.error) return { ok: false, expected: 'category update', observed: u.error.message }
+        }
+        const ver = await sb.from('categorias_servicio').select('id, orden').in('id', ids)
+        if (ver.error) return { ok: false, observed: ver.error.message }
+        const ok = ids.every((id, i) => ver.data.find(r => r.id === id)?.orden === i)
+        return ok
+          ? { ok: true, detail: '3 cats sequential 0/1/2' }
+          : { ok: false, expected: '0,1,2', observed: JSON.stringify(ver.data) }
+      } finally {
+        if (ids.length) await sb.from('categorias_servicio').delete().in('id', ids)
+      }
+    },
+  })
+
+  out.push({
+    id: 'services.hard_delete_unreferenced',
+    category: 'services',
+    name: 'unreferenced inactive service → hard delete OK',
+    fn: async () => {
+      const stamp = tag()
+      let svcId = null
+      try {
+        const ins = await sb.from('services').insert({
+          supabase_id: newSid(), business_id: biz.id,
+          name: `MS-DEL-${stamp}`, category: 'MS-cat', price: 1, cost: 0,
+          active: false, is_wash: false, no_commission: true,
+        }).select('id').single()
+        if (ins.error) return { ok: false, expected: 'service insert', observed: ins.error.message }
+        svcId = ins.data.id
+        const del = await sb.from('services').delete().eq('id', svcId).eq('business_id', biz.id)
+        if (del.error) return { ok: false, expected: 'delete OK', observed: del.error.message }
+        const check = await sb.from('services').select('id').eq('id', svcId).maybeSingle()
+        if (check.data) return { ok: false, expected: 'row gone', observed: 'row still present' }
+        svcId = null
+        return { ok: true, detail: 'hard-deleted cleanly' }
+      } finally {
+        if (svcId) await sb.from('services').delete().eq('id', svcId)
+      }
+    },
+  })
+
+  out.push({
+    id: 'services.hard_delete_referenced_blocked',
+    category: 'services',
+    name: 'referenced service → UI pre-check returns refCount ≥ 1',
+    fn: async () => {
+      const stamp = tag()
+      let svcId = null, svcSid = null, ticketId = null, itemId = null
+      try {
+        const ins = await sb.from('services').insert({
+          supabase_id: newSid(), business_id: biz.id,
+          name: `MS-FK-${stamp}`, category: 'MS-cat', price: 50, cost: 0,
+          active: false, is_wash: false, no_commission: true,
+        }).select('id, supabase_id').single()
+        if (ins.error) return { ok: false, expected: 'service insert', observed: ins.error.message }
+        svcId = ins.data.id; svcSid = ins.data.supabase_id
+        const t = await sb.from('tickets').insert({
+          supabase_id: newSid(), business_id: biz.id, doc_number: stamp,
+          client_name: 'MS-FK', subtotal: 50, total: 50, status: 'cobrado', open_status: 'closed', is_test: true,
+        }).select('id, supabase_id').single()
+        if (t.error) return { ok: false, observed: `ticket: ${t.error.message}` }
+        ticketId = t.data.id
+        const ti = await sb.from('ticket_items').insert({
+          supabase_id: newSid(), business_id: biz.id,
+          ticket_id: ticketId, ticket_supabase_id: t.data.supabase_id,
+          service_id: svcId, service_supabase_id: svcSid,
+          name: `MS-FK-${stamp}`, price: 50, quantity: 1,
+        }).select('id').single()
+        if (ti.error) return { ok: false, observed: `item: ${ti.error.message}` }
+        itemId = ti.data.id
+        const cnt = await sb.from('ticket_items').select('id', { count: 'exact', head: true })
+          .eq('business_id', biz.id).eq('service_supabase_id', svcSid)
+        if (cnt.error) return { ok: false, observed: cnt.error.message }
+        return (cnt.count || 0) >= 1
+          ? { ok: true, detail: `ref count=${cnt.count} — UI blocks delete` }
+          : { ok: false, expected: 'ref count >= 1', observed: `${cnt.count}` }
+      } finally {
+        if (itemId) await sb.from('ticket_items').delete().eq('id', itemId)
+        if (ticketId) await sb.from('tickets').delete().eq('id', ticketId)
+        if (svcId) await sb.from('services').delete().eq('id', svcId)
+      }
+    },
+  })
+
+  return out
+}
+
 function buildContabilidadScenarios(sb, base, demoRegistry) {
   const out = []
   // Resolve a contabilidad firm. accounting demo if present, else first demo.
@@ -981,6 +1097,7 @@ export async function runMegaSmoke({ sb, base, pgToken = null, vercelToken = nul
     ...buildRlsScenarios(pgToken, sb, demoRegistry),
     ...buildFlowScenarios(sb, demoRegistry),
     ...buildMesasScenarios(sb, demoRegistry),
+    ...buildServicesScenarios(sb, demoRegistry),
     ...buildContabilidadScenarios(sb, base, demoRegistry),
     ...buildPlanScenarios(),
     ...buildCronScenarios(sb),

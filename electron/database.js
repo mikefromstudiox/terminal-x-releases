@@ -4782,6 +4782,27 @@ function serviceUpdate(id, data) {
       old_value: priorRow.price, new_value: patch.price, amount: Number(patch.price) - Number(priorRow.price) })
   }
 }
+// v2.17.8 — Reference count for hard-delete pre-check. Counts ticket_items
+// referencing this service via either the legacy integer service_id or the
+// supabase_id UUID dual-key column. UI blocks hard-delete when > 0.
+function serviceRefCount(id) {
+  if (!db) return { count: 0 }
+  const svc = db.prepare('SELECT id, supabase_id FROM services WHERE id=?').get(id)
+  if (!svc) return { count: 0 }
+  let total = 0
+  try {
+    const a = db.prepare('SELECT COUNT(*) AS c FROM ticket_items WHERE service_id=?').get(svc.id)
+    total += Number(a?.c || 0)
+  } catch {}
+  if (svc.supabase_id) {
+    try {
+      const b = db.prepare('SELECT COUNT(*) AS c FROM ticket_items WHERE service_supabase_id=?').get(svc.supabase_id)
+      total += Number(b?.c || 0)
+    } catch {}
+  }
+  return { count: total }
+}
+
 function serviceDelete(id) {
   if (!db) return { deleted: false }
   // v2.14.20 — try hard DELETE first so the row actually disappears (owner
@@ -14419,7 +14440,7 @@ module.exports = {
   // Categorías de servicio
   categoriasGetAll, categoriaCreate, categoriaUpdate, categoriaDelete,
   // Services
-  servicesGetAll, servicesGetAllAdmin, servicesTopSellers, serviceCreate, serviceUpdate, serviceDelete, serviceSetInStock,
+  servicesGetAll, servicesGetAllAdmin, servicesTopSellers, serviceCreate, serviceUpdate, serviceDelete, serviceRefCount, serviceSetInStock,
   // Washers
   washersGetAll, washersGetAllAdmin, washerCreate, washerUpdate, washerDelete,
   // Sellers

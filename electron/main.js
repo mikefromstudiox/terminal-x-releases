@@ -2259,6 +2259,7 @@ handleMut('categorias:delete', ({id})          => db.categoriaDelete(id))
 handle('services:all',       ()              => db.servicesGetAll())
 handle('services:all-admin', ()              => db.servicesGetAllAdmin())
 handle('services:top-sellers', (opts)        => db.servicesTopSellers(opts || {}))
+handle('services:ref-count', ({ id })        => db.serviceRefCount(id))
 handleMut('services:create',    (data)          => db.serviceCreate(data), {
   requires: ({ actor }) => guard.guardOwnerOrManager(db, actor, null, 'services:create'),
   targetCtx: () => ({ target_type: 'service' }),

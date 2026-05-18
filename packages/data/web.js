@@ -1877,6 +1877,22 @@ export function createWebAPI(supabase, businessId) {
         return { ok: true, id: row.id, supabase_id: row.supabase_id, in_stock: next }
       }),
 
+      // v2.17.8 — Pre-flight ref count for hard-delete UI. Returns the number
+      // of ticket_items still referencing this service (matches both legacy
+      // integer service_id and the supabase_id UUID dual-key columns).
+      refCount: (id) => tryOr(async () => {
+        const svc = (await supabase.from('services').select('id, supabase_id').eq('id', id).eq('business_id', bid).maybeSingle())?.data
+        if (!svc) return { count: 0 }
+        let total = 0
+        const a = await supabase.from('ticket_items').select('id', { count: 'exact', head: true }).eq('business_id', bid).eq('service_id', svc.id)
+        if (typeof a.count === 'number') total += a.count
+        if (svc.supabase_id) {
+          const b = await supabase.from('ticket_items').select('id', { count: 'exact', head: true }).eq('business_id', bid).eq('service_supabase_id', svc.supabase_id)
+          if (typeof b.count === 'number') total += b.count
+        }
+        return { count: total }
+      }, { count: 0 }),
+
       delete: ({ id }) => tryWrite(async () => {
         await requireOwnerOrManager('services:delete')
         // Hard-delete when possible. FK from ticket_items keeps historical

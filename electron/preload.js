@@ -198,6 +198,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create:     (data) => call('services:create', data),
     update:     (data) => call('services:update', data),
     delete:     (data) => call('services:delete', data),
+    refCount:   (id)   => call('services:ref-count', { id }),
     setInStock: (key, inStock) => call('services:set-in-stock', { key, inStock }),
   },
 
