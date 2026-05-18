@@ -216,7 +216,8 @@ console.log('\n── 6. Vercel cron schedule ───────────�
 
 await step('Vercel cron config has 3 entries', async () => {
   const fs = await import('node:fs/promises')
-  const conf = JSON.parse(await fs.readFile('web/vercel.json', 'utf8'))
+  // Source of truth is the root vercel.json (web/vercel.json deleted 2026-05-17).
+  const conf = JSON.parse(await fs.readFile('vercel.json', 'utf8'))
   const crons = conf.crons || []
   if (crons.length < 3) throw new Error(`expected 3+ crons, got ${crons.length}`)
   const paths = crons.map(c => c.path)

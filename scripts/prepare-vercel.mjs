@@ -47,9 +47,15 @@ for (const f of readdirSync(libDir)) {
   if (f.endsWith('.js')) copyFileSync(join(libDir, f), join(DIST, 'lib', f))
 }
 
-// Middleware + Vercel config + project link
+// Middleware + project link
 copyFileSync(join(ROOT, 'web/middleware.js'), join(DIST, 'middleware.js'))
-copyFileSync(join(ROOT, 'web/vercel.json'),   join(DIST, 'vercel.json'))
+// NOTE 2026-05-17: We no longer copy web/vercel.json into dist-web/. When
+// `outputDirectory` is set in the root vercel.json (which it is), Vercel
+// IGNORES any vercel.json inside the output directory — only the root
+// vercel.json is read. Copying here was dead code that masked the fact
+// that web/vercel.json had drifted from root. After the 404-on-/pos
+// incident, web/vercel.json was deleted and root vercel.json is the
+// single source of truth for routing.
 
 // API-only package.json — keeps the Vercel function bundles small.
 writeFileSync(join(DIST, 'package.json'), JSON.stringify({

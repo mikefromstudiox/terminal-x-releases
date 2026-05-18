@@ -231,7 +231,7 @@ cd dist-web && npm install --silent && NODE_OPTIONS=--use-system-ca npx vercel -
 
 `NODE_OPTIONS=--use-system-ca` is required on Mike's Windows network (TLS interception breaks Node's bundled CA — see `memory/feedback_use_system_ca_on_windows.md`).
 
-Catch-all SPA rewrite blocks `sitemap.xml` / `robots.txt` — add explicit rewrites in `web/vercel.json` first.
+Catch-all SPA rewrite blocks `sitemap.xml` / `robots.txt` — add explicit rewrites in the **root** `vercel.json` first (single source of truth for Vercel routing as of 2026-05-17; `web/vercel.json` was deleted after a 404-on-/pos incident). When `outputDirectory` is set, Vercel ignores any vercel.json inside the output directory.
 
 ## Desktop Release Gotchas (load-bearing)
 - `gh release upload` reports 404 on 220MB .exe but the upload **actually succeeds**. Verify with `gh release view v<ver> --json assets` before retrying — a retry fails with `already_exists`. Pattern: create release first, upload assets separately, verify.
