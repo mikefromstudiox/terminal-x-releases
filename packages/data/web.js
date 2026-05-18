@@ -1347,10 +1347,10 @@ export function createWebAPI(supabase, businessId) {
         if (qty != null && (!Number.isFinite(qty) || qty < 0)) throw new Error('Cantidad invalida')
         const patch = { counted_qty: qty, updated_at: new Date().toISOString() }
         if (notes != null) patch.notes = notes
-        throwSupaError(await supabase.from('inventory_count_items').update(patch)
+        await assertAffected(supabase.from('inventory_count_items').update(patch)
           .eq('business_id', bid)
           .eq('count_supabase_id', count_supabase_id)
-          .eq('inventory_item_supabase_id', inventory_item_supabase_id))
+          .eq('inventory_item_supabase_id', inventory_item_supabase_id).select('id'), 'web.inventory_count_items.update')
         await refreshCountTotals(supabase, bid, count_supabase_id)
         return true
       }, 'web.inventoryCount.saveItem'),
@@ -1414,10 +1414,10 @@ export function createWebAPI(supabase, businessId) {
               .eq('business_id', bid).eq('supabase_id', r.inventory_item_supabase_id)
           }
         }
-        throwSupaError(await supabase.from('inventory_counts').update({
+        await assertAffected(supabase.from('inventory_counts').update({
           status: 'completado', completed_at: nowIso, updated_at: nowIso,
           ...(signature_dataurl ? { signature_dataurl } : {}),
-        }).eq('business_id', bid).eq('supabase_id', countSid))
+        }).eq('business_id', bid).eq('supabase_id', countSid).select('id'), 'web.inventory_counts.update')
 
         const totals = await refreshCountTotals(supabase, bid, countSid)
         const varianceCost = Math.abs(Number(totals.total_variance_value) || 0)
@@ -1455,9 +1455,9 @@ export function createWebAPI(supabase, businessId) {
         const nowIso = new Date().toISOString()
         // inventory_counts.id and supabase_id are BOTH uuid — match either.
         const sval = typeof id === 'string' ? id : String(id)
-        throwSupaError(await supabase.from('inventory_counts').update({
+        await assertAffected(supabase.from('inventory_counts').update({
           status: 'cancelado', completed_at: nowIso, updated_at: nowIso,
-        }).eq('business_id', bid).or(`id.eq.${sval},supabase_id.eq.${sval}`).eq('status', 'abierto'))
+        }).eq('business_id', bid).or(`id.eq.${sval},supabase_id.eq.${sval}`).eq('status', 'abierto').select('id'), 'web.inventory_counts.update')
         return true
       }, 'web.inventoryCount.cancel'),
 
@@ -1470,10 +1470,10 @@ export function createWebAPI(supabase, businessId) {
         if (!header) return false
         // Delete items first — no ON DELETE CASCADE on Supabase to avoid
         // accidentally wiping historical counts on header edits.
-        throwSupaError(await supabase.from('inventory_count_items').delete()
-          .eq('business_id', bid).eq('count_supabase_id', header.supabase_id))
-        throwSupaError(await supabase.from('inventory_counts').delete()
-          .eq('business_id', bid).eq('supabase_id', header.supabase_id))
+        await assertAffected(supabase.from('inventory_count_items').delete()
+          .eq('business_id', bid).eq('count_supabase_id', header.supabase_id).select('id'), 'web.inventory_count_items.delete')
+        await assertAffected(supabase.from('inventory_counts').delete()
+          .eq('business_id', bid).eq('supabase_id', header.supabase_id).select('id'), 'web.inventory_counts.delete')
         return true
       }, 'web.inventoryCount.delete'),
     },
@@ -2283,16 +2283,16 @@ export function createWebAPI(supabase, businessId) {
         return (rows || []).reduce((s, r) => s + Number(r.amount || 0), 0)
       }, 0),
       deduct: (id, payrollRunId) => tryWrite(async () => {
-        throwSupaError(await supabase.from('adelantos').update({
+        await assertAffected(supabase.from('adelantos').update({
           status: 'deducido',
           deducted_from_payroll_id: payrollRunId,
           deducted_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.adelantos.update')
       }, 'web.adelantos.deduct'),
       cancel: (id) => tryWrite(async () => {
         const { data: row } = await supabase.from('adelantos').select('amount').eq('id', id).eq('business_id', bid).maybeSingle()
-        throwSupaError(await supabase.from('adelantos').update({ status: 'cancelado' })
-          .eq('id', id).eq('business_id', bid).eq('status', 'pendiente'))
+        await assertAffected(supabase.from('adelantos').update({ status: 'cancelado' })
+          .eq('id', id).eq('business_id', bid).eq('status', 'pendiente').select('id'), 'web.adelantos.update')
         if (row) {
           await logActivity({ event_type: 'adelanto_cancelled', severity: 'warn',
             target_type: 'adelanto', target_id: id,
@@ -3502,31 +3502,31 @@ export function createWebAPI(supabase, businessId) {
         const nextRev = Number(cur?.rev || 0) + 1
 
         // 1. Move the ticket
-        throwSupaError(await supabase.from('tickets').update({
+        await assertAffected(supabase.from('tickets').update({
           mesa_supabase_id: newMesa.supabase_id,
           rev: nextRev,
-        }).eq('id', ticket.id).eq('business_id', bid))
+        }).eq('id', ticket.id).eq('business_id', bid).select('id'), 'web.tickets.update')
 
         // 2. Free the old mesa (status='sucia' to force a wipe-down before reseat)
         if (oldMesa?.id) {
-          throwSupaError(await supabase.from('mesas').update({
+          await assertAffected(supabase.from('mesas').update({
             status: 'sucia',
             guests_count: null,
             waiter_empleado_supabase_id: null,
             seated_at: null,
             bill_requested_at: null,
-          }).eq('id', oldMesa.id).eq('business_id', bid))
+          }).eq('id', oldMesa.id).eq('business_id', bid).select('id'), 'web.mesas.update')
         }
 
         // 3. Seat the new mesa with the carried-over context
         const seatedAt = oldMesa?.seated_at || ticket.created_at || new Date().toISOString()
-        throwSupaError(await supabase.from('mesas').update({
+        await assertAffected(supabase.from('mesas').update({
           status: 'ocupada',
           guests_count: oldMesa?.guests_count ?? ticket.guests ?? null,
           waiter_empleado_supabase_id: oldMesa?.waiter_empleado_supabase_id ?? ticket.waiter_empleado_supabase_id ?? null,
           seated_at: seatedAt,
           bill_requested_at: null,
-        }).eq('id', newMesa.id).eq('business_id', bid))
+        }).eq('id', newMesa.id).eq('business_id', bid).select('id'), 'web.mesas.update')
 
         await logActivity({
           event_type: 'restaurant_mesa_transfer',
@@ -3745,28 +3745,28 @@ export function createWebAPI(supabase, businessId) {
         // 2. Sum guests onto target.
         const totalGuests = Number(target.guests || 0) + Number(source.guests || 0)
         const tNextRev = Number(target.rev || 0) + 1
-        throwSupaError(await supabase.from('tickets').update({
+        await assertAffected(supabase.from('tickets').update({
           guests: totalGuests || null, rev: tNextRev,
-        }).eq('id', target.id).eq('business_id', bid))
+        }).eq('id', target.id).eq('business_id', bid).select('id'), 'web.tickets.update')
 
         // 3. Mark source as merged so cuadre/reports skip it.
         const sNextRev = Number(source.rev || 0) + 1
-        throwSupaError(await supabase.from('tickets').update({
+        await assertAffected(supabase.from('tickets').update({
           status: 'merged',
           notes: `Combinado con ${target.doc_number || target.id}`,
           rev: sNextRev,
-        }).eq('id', source.id).eq('business_id', bid))
+        }).eq('id', source.id).eq('business_id', bid).select('id'), 'web.tickets.update')
 
         // 4. Free the source mesa to 'sucia'. Lookup by supabase_id (mesa_id
         //    column on tickets does not exist — schema-drift fix v2.16.10).
         if (source.mesa_supabase_id) {
-          throwSupaError(await supabase.from('mesas').update({
+          await assertAffected(supabase.from('mesas').update({
             status: 'sucia',
             guests_count: null,
             waiter_empleado_supabase_id: null,
             seated_at: null,
             bill_requested_at: null,
-          }).eq('supabase_id', source.mesa_supabase_id).eq('business_id', bid))
+          }).eq('supabase_id', source.mesa_supabase_id).eq('business_id', bid).select('id'), 'web.mesas.update')
         }
 
         // 5. Update target mesa guests count (best-effort).
@@ -3998,20 +3998,20 @@ export function createWebAPI(supabase, businessId) {
         const safeQty = Math.max(0, parseInt(data.qty || 0, 10))
         if (safeQty === 0) {
           if (data.ticket_item_id) {
-            throwSupaError(await supabase.from('ticket_items').delete()
-              .eq('id', data.ticket_item_id).eq('business_id', bid))
+            await assertAffected(supabase.from('ticket_items').delete()
+              .eq('id', data.ticket_item_id).eq('business_id', bid).select('id'), 'web.ticket_items.delete')
           } else if (data.ticket_item_supabase_id) {
-            throwSupaError(await supabase.from('ticket_items').delete()
-              .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
+            await assertAffected(supabase.from('ticket_items').delete()
+              .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid).select('id'), 'web.ticket_items.delete')
           }
           return { id: data.ticket_item_id, qty: 0 }
         }
         if (data.ticket_item_id) {
-          throwSupaError(await supabase.from('ticket_items').update({ quantity: safeQty })
-            .eq('id', data.ticket_item_id).eq('business_id', bid))
+          await assertAffected(supabase.from('ticket_items').update({ quantity: safeQty })
+            .eq('id', data.ticket_item_id).eq('business_id', bid).select('id'), 'web.ticket_items.update')
         } else if (data.ticket_item_supabase_id) {
-          throwSupaError(await supabase.from('ticket_items').update({ quantity: safeQty })
-            .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
+          await assertAffected(supabase.from('ticket_items').update({ quantity: safeQty })
+            .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid).select('id'), 'web.ticket_items.update')
         }
         return { id: data.ticket_item_id, qty: safeQty }
       }, 'web.tickets.updateItemQty'),
@@ -4024,11 +4024,11 @@ export function createWebAPI(supabase, businessId) {
           } catch {}
         }
         if (data.ticket_item_id) {
-          throwSupaError(await supabase.from('ticket_items').delete()
-            .eq('id', data.ticket_item_id).eq('business_id', bid))
+          await assertAffected(supabase.from('ticket_items').delete()
+            .eq('id', data.ticket_item_id).eq('business_id', bid).select('id'), 'web.ticket_items.delete')
         } else if (data.ticket_item_supabase_id) {
-          throwSupaError(await supabase.from('ticket_items').delete()
-            .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid))
+          await assertAffected(supabase.from('ticket_items').delete()
+            .eq('supabase_id', data.ticket_item_supabase_id).eq('business_id', bid).select('id'), 'web.ticket_items.delete')
         }
         return { removed: true }
       }, 'web.tickets.removeItem'),
@@ -4113,8 +4113,8 @@ export function createWebAPI(supabase, businessId) {
             if (data.seller_empleado_supabase_id) updates.seller_empleado_supabase_id = data.seller_empleado_supabase_id
             if (Array.isArray(data.washer_empleado_supabase_ids)) updates.washer_empleado_supabase_ids = data.washer_empleado_supabase_ids
 
-            throwSupaError(await supabase.from('tickets').update(updates)
-              .eq('id', row.id).eq('business_id', bid))
+            await assertAffected(supabase.from('tickets').update(updates)
+              .eq('id', row.id).eq('business_id', bid).select('id'), 'web.tickets.update')
 
             // v2.16.3 — Restaurante recetas: decrement ingredient inventory.
             // Wrapped — failures emit `recipe_inventory_skip` audit row but
@@ -5210,11 +5210,11 @@ export function createWebAPI(supabase, businessId) {
             approvedSid = emp?.supabase_id || null
           }
         }
-        throwSupaError(await supabase.from('caja_chica').update({
+        await assertAffected(supabase.from('caja_chica').update({
           status,
           approved_by: approvedBy || null,
           approved_by_supabase_id: approvedSid,
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.caja_chica.update')
       }, 'web.cajaChica.updateStatus'),
     },
 
@@ -5602,8 +5602,8 @@ export function createWebAPI(supabase, businessId) {
               .eq('business_id', bid).in('ticket_supabase_id', tSids)
           } catch (e) { console.error('[goLiveCommit] anecf_queue cleanup failed:', e?.message) }
           // 5) Finally delete the tickets themselves.
-          throwSupaError(await supabase.from('tickets').delete()
-            .eq('business_id', bid).in('supabase_id', tSids))
+          await assertAffected(supabase.from('tickets').delete()
+            .eq('business_id', bid).in('supabase_id', tSids).select('id'), 'web.tickets.delete')
         }
 
         // 6) Reset NCF sequences so the first real sale is #1. Per-business
@@ -6073,8 +6073,8 @@ export function createWebAPI(supabase, businessId) {
 
       delete: (id) => tryWrite(async () => {
         // Soft-delete — match services.delete() semantics (LWW-friendly + safe).
-        throwSupaError(await supabase.from('mesas').update({ active: false })
-          .eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('mesas').update({ active: false })
+          .eq('id', id).eq('business_id', bid).select('id'), 'web.mesas.update')
         return { deleted: true }
       }, 'web.restaurant.mesas.delete'),
 
@@ -6283,8 +6283,8 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.restaurant.modificadores.update'),
 
       delete: (id) => tryWrite(async () => {
-        throwSupaError(await supabase.from('modificadores').update({ active: false })
-          .eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('modificadores').update({ active: false })
+          .eq('id', id).eq('business_id', bid).select('id'), 'web.modificadores.update')
         return { deleted: true }
       }, 'web.restaurant.modificadores.delete'),
 
@@ -6314,10 +6314,10 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.restaurant.service_mods.attachToService'),
 
       detachFromService: (serviceSupabaseId, modificadorSupabaseId) => tryWrite(async () => {
-        throwSupaError(await supabase.from('service_modificadores').delete()
+        await assertAffected(supabase.from('service_modificadores').delete()
           .eq('business_id', bid)
           .eq('service_supabase_id', serviceSupabaseId)
-          .eq('modificador_supabase_id', modificadorSupabaseId))
+          .eq('modificador_supabase_id', modificadorSupabaseId).select('id'), 'web.service_modificadores.delete')
       }, 'web.restaurant.service_mods.detachFromService'),
     },
 
@@ -6555,13 +6555,13 @@ export function createWebAPI(supabase, businessId) {
         if (isNew) {
           throwSupaError(await supabase.from('ofertas').insert(payload).select('supabase_id').single())
         } else {
-          throwSupaError(await supabase.from('ofertas').update(payload)
-            .eq('business_id', bid).eq('supabase_id', sid))
+          await assertAffected(supabase.from('ofertas').update(payload)
+            .eq('business_id', bid).eq('supabase_id', sid).select('id'), 'web.ofertas.update')
         }
 
         // Replace components
-        throwSupaError(await supabase.from('oferta_items').delete()
-          .eq('business_id', bid).eq('oferta_supabase_id', sid))
+        await assertAffected(supabase.from('oferta_items').delete()
+          .eq('business_id', bid).eq('oferta_supabase_id', sid).select('id'), 'web.oferta_items.delete')
         const rows = []
         for (const it of items) {
           const svc = it.service_supabase_id || null
@@ -6601,12 +6601,12 @@ export function createWebAPI(supabase, businessId) {
 
       delete: (supabase_id) => tryOr(async () => {
         if (!supabase_id) return { deleted: false }
-        throwSupaError(await supabase.from('oferta_items').delete()
-          .eq('business_id', bid).eq('oferta_supabase_id', supabase_id))
+        await assertAffected(supabase.from('oferta_items').delete()
+          .eq('business_id', bid).eq('oferta_supabase_id', supabase_id).select('id'), 'web.oferta_items.delete')
         const { data: o } = await supabase.from('ofertas').select('name')
           .eq('business_id', bid).eq('supabase_id', supabase_id).maybeSingle()
-        throwSupaError(await supabase.from('ofertas').delete()
-          .eq('business_id', bid).eq('supabase_id', supabase_id))
+        await assertAffected(supabase.from('ofertas').delete()
+          .eq('business_id', bid).eq('supabase_id', supabase_id).select('id'), 'web.ofertas.delete')
         try {
           await supabase.from('activity_log').insert({
             supabase_id: crypto.randomUUID(),
@@ -7202,12 +7202,12 @@ export function createWebAPI(supabase, businessId) {
         return rows
       }, []),
       markPaid: (id, paid_by_supabase_id) => tryWrite(async () => {
-        throwSupaError(await supabase.from('mechanic_commissions').update({
+        await assertAffected(supabase.from('mechanic_commissions').update({
           paid: true,
           paid_at: new Date().toISOString(),
           paid_by_supabase_id: paid_by_supabase_id || null,
           updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.mechanic_commissions.update')
         return { id }
       }),
     },
@@ -7371,9 +7371,9 @@ export function createWebAPI(supabase, businessId) {
       })),
       release: ({ id, reason } = {}) => withDealershipQ('vehicleReservation_release', { id, reason }, () => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('vehicle_reservations').select('vehicle_inventory_supabase_id').eq('id', id).eq('business_id', bid).maybeSingle())
-        throwSupaError(await supabase.from('vehicle_reservations').update({
+        await assertAffected(supabase.from('vehicle_reservations').update({
           status: 'released', released_at: new Date().toISOString(), released_reason: reason || null, updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.vehicle_reservations.update')
         const veh = cur?.vehicle_inventory_supabase_id
         if (veh) {
           const { count } = await supabase.from('vehicle_reservations').select('id', { count: 'exact', head: true })
@@ -7390,9 +7390,9 @@ export function createWebAPI(supabase, businessId) {
       })),
       convert: ({ id, deal_supabase_id } = {}) => withDealershipQ('vehicleReservation_convert', { id, deal_supabase_id }, () => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('vehicle_reservations').select('vehicle_inventory_supabase_id').eq('id', id).eq('business_id', bid).maybeSingle())
-        throwSupaError(await supabase.from('vehicle_reservations').update({
+        await assertAffected(supabase.from('vehicle_reservations').update({
           status: 'converted', converted_deal_supabase_id: deal_supabase_id || null, updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.vehicle_reservations.update')
         if (cur?.vehicle_inventory_supabase_id) {
           // v2.16.29 (C2 follow-on) — log the failure. Deal is already closed,
           // so we don't throw, but inventory marker MUST eventually become
@@ -7409,9 +7409,9 @@ export function createWebAPI(supabase, businessId) {
         const due = throwSupaError(await supabase.from('vehicle_reservations').select('id, vehicle_inventory_supabase_id')
           .eq('business_id', bid).eq('active', true).eq('status', 'active').lte('expires_at', nowIso)) || []
         if (!due.length) return { expired: 0 }
-        throwSupaError(await supabase.from('vehicle_reservations').update({
+        await assertAffected(supabase.from('vehicle_reservations').update({
           status: 'expired', released_at: nowIso, released_reason: 'auto_expired', updated_at: nowIso,
-        }).in('id', due.map(d => d.id)).eq('business_id', bid))
+        }).in('id', due.map(d => d.id)).eq('business_id', bid).select('id'), 'web.vehicle_reservations.update')
         const seen = new Set()
         for (const d of due) {
           const veh = d.vehicle_inventory_supabase_id
@@ -7479,17 +7479,17 @@ export function createWebAPI(supabase, businessId) {
           cost:        Number(claim?.cost) || 0,
         })
         const newStatus = cur?.status === 'active' ? 'claimed' : (cur?.status || 'claimed')
-        throwSupaError(await supabase.from('vehicle_warranties').update({
+        await assertAffected(supabase.from('vehicle_warranties').update({
           claims: prev, status: newStatus, updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.vehicle_warranties.update')
         return throwSupaError(await supabase.from('vehicle_warranties').select('*').eq('id', id).eq('business_id', bid).single())
       })),
       void: ({ id, reason } = {}) => withDealershipQ('vehicleWarranty_void', { id, reason }, () => tryWrite(async () => {
         const cur = throwSupaError(await supabase.from('vehicle_warranties').select('notes').eq('id', id).eq('business_id', bid).maybeSingle())
         const notes = reason ? `${cur?.notes ? cur.notes + '\n' : ''}[ANULADA] ${reason}` : cur?.notes
-        throwSupaError(await supabase.from('vehicle_warranties').update({
+        await assertAffected(supabase.from('vehicle_warranties').update({
           status: 'voided', notes, updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.vehicle_warranties.update')
         return { id }
       })),
       expire: () => tryWrite(async () => {
@@ -7497,9 +7497,9 @@ export function createWebAPI(supabase, businessId) {
         const due = throwSupaError(await supabase.from('vehicle_warranties').select('id')
           .eq('business_id', bid).eq('active', true).in('status', ['active','claimed']).lte('expires_at', nowIso)) || []
         if (!due.length) return { expired: 0 }
-        throwSupaError(await supabase.from('vehicle_warranties').update({
+        await assertAffected(supabase.from('vehicle_warranties').update({
           status: 'expired', updated_at: nowIso,
-        }).in('id', due.map(d => d.id)).eq('business_id', bid))
+        }).in('id', due.map(d => d.id)).eq('business_id', bid).select('id'), 'web.vehicle_warranties.update')
         return { expired: due.length }
       }),
     },
@@ -7547,9 +7547,9 @@ export function createWebAPI(supabase, businessId) {
         const decisionAt = (status === 'pre_aprobada' || status === 'rechazada') ? new Date().toISOString() : cur?.decision_at
         const url = decision_letter_url !== undefined ? decision_letter_url : cur?.decision_letter_url
         const mergedNotes = notes ? `${cur?.notes ? cur.notes + '\n' : ''}${notes}` : cur?.notes
-        throwSupaError(await supabase.from('bank_preapprovals').update({
+        await assertAffected(supabase.from('bank_preapprovals').update({
           status, decision_at: decisionAt, decision_letter_url: url, notes: mergedNotes, updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.bank_preapprovals.update')
         return throwSupaError(await supabase.from('bank_preapprovals').select('*').eq('id', id).eq('business_id', bid).single())
       })),
       expire: () => tryWrite(async () => {
@@ -7557,9 +7557,9 @@ export function createWebAPI(supabase, businessId) {
         const due = throwSupaError(await supabase.from('bank_preapprovals').select('id')
           .eq('business_id', bid).eq('active', true).in('status', ['solicitada','en_revision','pre_aprobada']).not('expires_at', 'is', null).lte('expires_at', nowIso)) || []
         if (!due.length) return { expired: 0 }
-        throwSupaError(await supabase.from('bank_preapprovals').update({
+        await assertAffected(supabase.from('bank_preapprovals').update({
           status: 'expirada', updated_at: nowIso,
-        }).in('id', due.map(d => d.id)).eq('business_id', bid))
+        }).in('id', due.map(d => d.id)).eq('business_id', bid).select('id'), 'web.bank_preapprovals.update')
         return { expired: due.length }
       }),
     },
@@ -9131,11 +9131,11 @@ export function createWebAPI(supabase, businessId) {
         const { data: s } = await supabase.from('subscriptions').select('next_billing_date,interval_days').eq('id', id).eq('business_id', bid).single()
         if (!s) return null
         const next = new Date(s.next_billing_date + 'T12:00:00'); next.setDate(next.getDate() + (Number(s.interval_days) || 30))
-        throwSupaError(await supabase.from('subscriptions').update({
+        await assertAffected(supabase.from('subscriptions').update({
           last_billed_at: new Date().toISOString(),
           next_billing_date: next.toISOString().slice(0, 10),
           updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.subscriptions.update')
         return { id }
       }),
       delete: (id) => tryWrite(async () => {
@@ -9195,11 +9195,11 @@ export function createWebAPI(supabase, businessId) {
         if (sp.used_sessions >= sp.total_sessions) return { ok: false, error: 'exhausted', remaining: 0 }
         const newUsed = sp.used_sessions + 1
         const remaining = sp.total_sessions - newUsed
-        throwSupaError(await supabase.from('service_packages').update({
+        await assertAffected(supabase.from('service_packages').update({
           used_sessions: newUsed,
           status: remaining <= 0 ? 'exhausted' : 'active',
           updated_at: new Date().toISOString(),
-        }).eq('id', id).eq('business_id', bid))
+        }).eq('id', id).eq('business_id', bid).select('id'), 'web.service_packages.update')
         return { ok: true, remaining }
       }),
       delete: (id) => tryWrite(async () => {
@@ -9275,11 +9275,11 @@ export function createWebAPI(supabase, businessId) {
           .eq('client_supabase_id',  data.client_supabase_id)
           .eq('service_supabase_id', data.service_supabase_id).maybeSingle()
         if (existing.data?.id) {
-          throwSupaError(await supabase.from('client_service_rates').update({
+          await assertAffected(supabase.from('client_service_rates').update({
             custom_price: Number(data.custom_price) || 0,
             notes:        data.notes || null,
             updated_at:   new Date().toISOString(),
-          }).eq('id', existing.data.id).eq('business_id', bid))
+          }).eq('id', existing.data.id).eq('business_id', bid).select('id'), 'web.client_service_rates.update')
           return { id: existing.data.id }
         }
         const row = throwSupaError(await supabase.from('client_service_rates').insert({
@@ -9337,11 +9337,11 @@ export function createWebAPI(supabase, businessId) {
           .eq('client_supabase_id',         data.client_supabase_id)
           .eq('inventory_item_supabase_id', data.inventory_item_supabase_id).maybeSingle()
         if (existing.data?.id) {
-          throwSupaError(await supabase.from('client_item_prices').update({
+          await assertAffected(supabase.from('client_item_prices').update({
             custom_price: price,
             notes:        data.notes || null,
             updated_at:   new Date().toISOString(),
-          }).eq('id', existing.data.id).eq('business_id', bid))
+          }).eq('id', existing.data.id).eq('business_id', bid).select('id'), 'web.client_item_prices.update')
           return { id: existing.data.id }
         }
         const row = throwSupaError(await supabase.from('client_item_prices').insert({
@@ -9386,9 +9386,9 @@ export function createWebAPI(supabase, businessId) {
                 .eq('business_id', bid).eq('client_supabase_id', csid)
                 .eq('inventory_item_supabase_id', iisid).maybeSingle()
               if (existing.data?.id) {
-                throwSupaError(await supabase.from('client_item_prices').update({
+                await assertAffected(supabase.from('client_item_prices').update({
                   custom_price: price, notes: r.notes || null, updated_at: new Date().toISOString(),
-                }).eq('id', existing.data.id).eq('business_id', bid))
+                }).eq('id', existing.data.id).eq('business_id', bid).select('id'), 'web.client_item_prices.update')
               } else {
                 throwSupaError(await supabase.from('client_item_prices').insert({
                   supabase_id: crypto.randomUUID(), business_id: bid,
