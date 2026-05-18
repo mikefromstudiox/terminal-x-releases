@@ -19,12 +19,17 @@ const PLAN_LABELS = {
   pro_ctb: 'Pro CTB',
 }
 
+// 2026-05-18 — Prices realigned to the canonical 2026-05-12 lock
+// (see memory/reference_pricing_locked_20260512.md + landing's
+// RoiCalculator + FeatureMatrix). Old values 2,990/5,490/9,990 were
+// the 2026-04-27 numbers that never got updated here, so /config/plan
+// showed Pro MAX as RD$9,990 while the landing said RD$6,990.
 const PLAN_PRICE = {
-  pro: 'RD$ 2,990',
-  pro_plus: 'RD$ 5,490',
-  pro_max: 'RD$ 9,990',
-  facturacion: 'RD$ 1,990',
-  pro_ctb: 'RD$ 7,990',
+  pro:         'RD$ 2,490',
+  pro_plus:    'RD$ 4,490',
+  pro_max:     'RD$ 6,990',
+  facturacion: 'RD$ 490',
+  pro_ctb:     'RD$ 7,990',
 }
 
 export default function ConfigPlan() {
