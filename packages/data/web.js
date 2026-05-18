@@ -857,7 +857,7 @@ export function createWebAPI(supabase, businessId) {
             Object.assign(rest, creds, { pin_failed_attempts: 0, pin_locked_until: null })
           }
           if ('active' in rest) rest.active = !!rest.active
-          throwSupaError(await supabase.from('staff').update(rest).eq('id', id).eq('business_id', bid))
+          await assertAffected(supabase.from('staff').update(rest).eq('id', id).eq('business_id', bid).select('id'), 'web.admin.saveUsuario.update')
           return { id }
         }
         if (!data.pin) throw new Error('PIN requerido')
@@ -873,7 +873,7 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.admin.saveUsuario'),
 
       deleteUsuario: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('staff').update({ active: false }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('staff').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.admin.deleteUsuario')
       }, 'web.admin.deleteUsuario'),
 
       getLavadores: () => tryOr(async () => {
@@ -1684,7 +1684,7 @@ export function createWebAPI(supabase, businessId) {
         // sync push (desktop still has the row locally and upserts it back).
         const snap = await supabase.from('staff').select('name, username').eq('id', id).eq('business_id', bid).maybeSingle()
         const name = snap?.data ? `${snap.data.name} (@${snap.data.username})` : `#${id}`
-        throwSupaError(await supabase.from('staff').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('staff').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.users.delete')
         await logActivity({ event_type: 'user_deleted', severity: 'warn', target_type: 'user', target_id: id, target_name: name })
         return { deleted: true }
       }, 'web.users.delete'),
@@ -1693,7 +1693,7 @@ export function createWebAPI(supabase, businessId) {
         await guardUserMutation('users:delete-hard', { id })
         const snap = await supabase.from('staff').select('name, username').eq('id', id).eq('business_id', bid).maybeSingle()
         const name = snap?.data ? `${snap.data.name} (@${snap.data.username})` : `#${id}`
-        throwSupaError(await supabase.from('staff').delete().eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('staff').delete().eq('id', id).eq('business_id', bid).select('id'), 'web.users.deleteHard')
         await logActivity({ event_type: 'user_hard_deleted', severity: 'critical', target_type: 'user', target_id: id, target_name: name, reason: 'force delete from Admin → Usuarios' })
         return { deleted: true, hard: true }
       }, 'web.users.deleteHard'),
