@@ -29,7 +29,12 @@ const PLAN_FEATURES = {
   pro: [
     'pos', 'queue', 'clients', 'credits', 'reports',
     'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
-    'invoicing', 'nomina_basic',
+    // 2026-05-18 — `invoicing` removed from POS tiers (was pro/pro_plus/pro_max).
+    // The standalone Facturación module + sidebar group is for clients on the
+    // invoicing-ONLY plan. POS clients emit e-CF inside CobrarModal (gated by
+    // `ecf`, not `invoicing`) and read 606/607 via the top-level DGII menu —
+    // so the extra Facturación sidebar group was redundant clutter for them.
+    'nomina_basic',
     // v2.16.1 — salon free tier
     'salon_preferred_stylist',
     // v2.16.2 Sprint 2E — concesionario_resumen tile lives at every tier so an
@@ -51,7 +56,8 @@ const PLAN_FEATURES = {
     'ofertas',
     'whatsapp_receipts', 'whatsapp_automation',
     'restaurant_mode', 'work_orders', 'appointments', 'service_bays',
-    'loans', 'vehicles', 'invoicing', 'nomina_basic',
+    'loans', 'vehicles', 'nomina_basic',
+    // `invoicing` not in POS tiers — see note on `pro` block above.
     'dealership',
     // v2.16.3 — Restaurante hardening (H4 + H5):
     //  - restaurant_reservations: front-of-house Reservas screen.
@@ -125,7 +131,7 @@ const PLAN_FEATURES = {
     // 2026-05-17 — Mesas add-on (inherited from Pro PLUS).
     'tables_addon',
     'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules',
-    'invoicing',
+    // `invoicing` not in POS tiers — see note on `pro` block above.
     'dealership', 'dealership_crm', 'dealership_docs',
     // v2.7.1
     'loyalty', 'offline_mode',

@@ -457,7 +457,12 @@ const NAV = [
       // v2.16.2 Facturación-tier sprint — E33/E34 surfaces here so a billing-only
       // client never has to hunt for the standalone /credit-notes entry.
       { to: '/credit-notes', es: 'Notas de Crédito', en: 'Credit Notes', feature: 'credit_notes' },
-      { to: '/dgii', es: 'Reportes 606/607', en: '606/607 Reports', feature: 'dgii_606_607' },
+      // Deep-link to the 606 tab inside the DGII shell so a Facturación-plan
+       // client clicking 'Reportes 606/607' lands on the report, not the default
+       // (which was always 606 anyway, but explicit query keeps it stable if
+       // the DGII default tab ever changes). Also distinguishes this entry
+       // visually from the top-level 'DGII' menu for the rare plan that has both.
+      { to: '/dgii?tab=606', es: 'Reportes 606/607', en: '606/607 Reports', feature: 'dgii_606_607' },
     ],
   },
   {
