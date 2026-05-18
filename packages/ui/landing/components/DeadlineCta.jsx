@@ -105,7 +105,7 @@ export default function DeadlineCta({ lang = 'es' }) {
           </a>
         </div>
 
-        <p className="mt-6 text-[11px] sm:text-xs text-white/40 tracking-wide">
+        <p className="mt-6 text-[11px] sm:text-xs text-white/60 tracking-wide">
           DGII Cert #42483 · RNC 133410321 ·{' '}
           {lang === 'en' ? 'No credit card · Cancel anytime' : 'Sin tarjeta · Cancela cuando quieras'}
         </p>

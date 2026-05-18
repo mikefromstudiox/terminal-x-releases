@@ -95,8 +95,8 @@ export default function DgiiComparison({ lang = 'es' }) {
         {/* Desktop / md+ table */}
         <div className="hidden md:block rounded-2xl overflow-hidden border border-black/10">
           <div className="grid grid-cols-12 bg-black/[0.03] border-b border-black/10">
-            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-black/50">{t.colA}</div>
-            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-black/50 border-l border-black/10">{t.colB}</div>
+            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-black/60">{t.colA}</div>
+            <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-black/60 border-l border-black/10">{t.colB}</div>
             <div className="col-span-4 px-6 py-4 text-[11px] font-extrabold tracking-[2px] uppercase text-white border-l border-[#b3001e]/40 bg-[#b3001e]">{t.colC}</div>
           </div>
           {rows.map((row, i) => (
@@ -119,7 +119,7 @@ export default function DgiiComparison({ lang = 'es' }) {
               <div className="px-4 py-3 bg-black/[0.03] text-sm font-bold text-black">{row.cap}</div>
               <div className="grid grid-cols-2 divide-x divide-black/10">
                 <div className="px-4 py-3 bg-black/[0.02]">
-                  <p className="text-[10px] font-extrabold tracking-[2px] uppercase text-black/40 mb-1.5">{t.colB}</p>
+                  <p className="text-[10px] font-extrabold tracking-[2px] uppercase text-black/60 mb-1.5">{t.colB}</p>
                   <div className="text-sm text-black/60"><Cell value={row.dgii} isCrimson={false} /></div>
                 </div>
                 <div className="px-4 py-3 bg-[#b3001e]/[0.08]">

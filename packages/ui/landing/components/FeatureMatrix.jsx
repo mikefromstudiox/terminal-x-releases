@@ -89,7 +89,7 @@ export default function FeatureMatrix({ lang = 'es' }) {
             <table className="w-full min-w-[820px] border-collapse">
               <thead>
                 <tr className="bg-black/[0.03]">
-                  <th className="sticky left-0 z-10 bg-black/[0.03] text-left px-4 py-3 text-[11px] font-extrabold tracking-[2px] uppercase text-black/50 min-w-[260px]">
+                  <th className="sticky left-0 z-10 bg-black/[0.03] text-left px-4 py-3 text-[11px] font-extrabold tracking-[2px] uppercase text-black/60 min-w-[260px]">
                     {lang === 'es' ? 'Característica' : 'Feature'}
                   </th>
                   {TIER_KEYS.map(k => {
@@ -99,7 +99,7 @@ export default function FeatureMatrix({ lang = 'es' }) {
                         <div className={`text-[11px] font-extrabold tracking-[1px] uppercase ${isPlus ? 'text-[#b3001e]' : 'text-black/70'}`}>
                           {TIER_LABELS[k]}
                         </div>
-                        <div className="text-[10px] text-black/45 mt-0.5">{TIER_PRICES[k]}/mes</div>
+                        <div className="text-[10px] text-black/60 mt-0.5">{TIER_PRICES[k]}/mes</div>
                       </th>
                     )
                   })}
@@ -109,7 +109,7 @@ export default function FeatureMatrix({ lang = 'es' }) {
                 {rows.map((row, i) => (
                   <tr key={i} className={`border-t border-black/5 ${i % 2 === 0 ? '' : 'bg-black/[0.015]'}`}>
                     <td className="sticky left-0 z-10 bg-inherit px-4 py-3 text-sm text-black font-semibold">
-                      <span className="text-[10px] uppercase tracking-wider text-black/40 mr-2">{catLabels[row.category] || row.category}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-black/60 mr-2">{catLabels[row.category] || row.category}</span>
                       <span className="block sm:inline">{row[featKey]}</span>
                     </td>
                     {TIER_KEYS.map(k => {
@@ -127,7 +127,7 @@ export default function FeatureMatrix({ lang = 'es' }) {
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-black/45">
+        <p className="mt-6 text-center text-xs text-black/60">
           {lang === 'es' ? 'Pro PLUS es el plan más popular — equilibrio óptimo entre POS y facturación electrónica.' : 'Pro PLUS is the most popular plan — best balance of POS and e-invoicing.'}
         </p>
       </div>

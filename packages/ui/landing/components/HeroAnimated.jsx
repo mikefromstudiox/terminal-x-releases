@@ -141,7 +141,7 @@ export default function HeroAnimated({ lang = 'es' }) {
               </button>
             </div>
 
-            <p className="mt-7 text-xs sm:text-sm font-medium text-black/50 leading-relaxed">{t.trust}</p>
+            <p className="mt-7 text-xs sm:text-sm font-medium text-black/60 leading-relaxed">{t.trust}</p>
           </motion.div>
 
           {/* Right: 3-column animated mockup */}
@@ -157,7 +157,7 @@ export default function HeroAnimated({ lang = 'es' }) {
                 <div className="rounded-2xl bg-black p-3 shadow-2xl shadow-black/20">
                   <DesktopMockup alt={t.mockDesktop} />
                 </div>
-                <p className="mt-2 text-[10px] uppercase tracking-[2px] font-bold text-black/40 text-center">{t.mockDesktop}</p>
+                <p className="mt-2 text-[10px] uppercase tracking-[2px] font-bold text-black/60 text-center">{t.mockDesktop}</p>
               </motion.div>
 
               {/* Mobile — smallest, foreground-right */}
@@ -170,7 +170,7 @@ export default function HeroAnimated({ lang = 'es' }) {
                 <div className="rounded-3xl bg-black p-1.5 shadow-2xl shadow-black/30">
                   <MobileMockup alt={t.mockMobile} />
                 </div>
-                <p className="mt-2 text-[10px] uppercase tracking-[2px] font-bold text-black/40 text-center">{t.mockMobile}</p>
+                <p className="mt-2 text-[10px] uppercase tracking-[2px] font-bold text-black/60 text-center">{t.mockMobile}</p>
               </motion.div>
 
               {/* Web invoice — bottom row spans full width */}
@@ -183,7 +183,7 @@ export default function HeroAnimated({ lang = 'es' }) {
                 <div className="rounded-2xl bg-white border border-black/10 p-3 shadow-2xl shadow-black/10">
                   <WebMockup alt={t.mockWeb} />
                 </div>
-                <p className="mt-2 text-[10px] uppercase tracking-[2px] font-bold text-black/40 text-center">{t.mockWeb}</p>
+                <p className="mt-2 text-[10px] uppercase tracking-[2px] font-bold text-black/60 text-center">{t.mockWeb}</p>
               </motion.div>
             </div>
           </div>

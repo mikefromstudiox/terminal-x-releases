@@ -216,7 +216,7 @@ export default function RoiCalculator({ lang = 'es' }) {
                 onChange={e => setFacturas(parseInt(e.target.value, 10))}
                 className="w-full accent-[#b3001e]"
               />
-              <div className="flex justify-between text-[10px] text-white/40 mt-1">
+              <div className="flex justify-between text-[10px] text-white/60 mt-1">
                 <span>0</span><span>500</span><span>1000+</span>
               </div>
             </div>
@@ -327,7 +327,7 @@ export default function RoiCalculator({ lang = 'es' }) {
               <ArrowRight size={18} className="group-hover:translate-x-0.5 transition-transform" />
             </button>
 
-            <p className="mt-3 text-[11px] text-white/40 text-center">{t.note}</p>
+            <p className="mt-3 text-[11px] text-white/60 text-center">{t.note}</p>
           </div>
         </div>
       </div>

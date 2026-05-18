@@ -235,7 +235,7 @@ export default function SeoLandingPage({ pageKey }) {
                   </table>
                 </div>
                 {sec.footer && (
-                  <p className={`mt-6 text-xs italic ${isBlack ? 'text-white/40' : 'text-black/50'}`}>{sec.footer}</p>
+                  <p className={`mt-6 text-xs italic ${isBlack ? 'text-white/60' : 'text-black/60'}`}>{sec.footer}</p>
                 )}
               </div>
             </section>
@@ -313,7 +313,7 @@ export default function SeoLandingPage({ pageKey }) {
       </section>
 
       {/* Footer */}
-      <footer className="bg-black text-white/40 text-xs py-10 px-4 sm:px-6 lg:px-8 text-center border-t border-white/5">
+      <footer className="bg-black text-white/60 text-xs py-10 px-4 sm:px-6 lg:px-8 text-center border-t border-white/5">
         © {new Date().getFullYear()} Terminal X · Studio X · Santo Domingo, RD ·{' '}
         <Link to="/" className="hover:text-white">terminalxpos.com</Link>
       </footer>
