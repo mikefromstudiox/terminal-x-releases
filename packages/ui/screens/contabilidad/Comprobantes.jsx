@@ -32,6 +32,23 @@ function pad(n, w) { return String(n).padStart(w, '0') }
 // Norma 06-23: 606 includes 4 ITBIS columns (facturado, retenido, proporcionalidad,
 // llevado_al_costo) + Tipo Bienes y Servicios (1-11 per Norma 07-18). Default
 // tipo_bs = 1 (Gastos de Personal) when contadora hasn't classified yet.
+// 2026-05-18 Fix Z — when monto_total is missing, derive it INCLUDING retenciones
+// + propina + impuestos, not just (monto_facturado + itbis_facturado). Was
+// over-reporting (or under-) by the retention amount on lines with retenciones.
+function deriveTotal(r) {
+  if (r.monto_total != null && r.monto_total !== '') return Number(r.monto_total)
+  const f  = +r.monto_facturado || 0
+  const it = +r.itbis_facturado || 0
+  const itR = +r.itbis_retenido || 0
+  const isr = +r.isr_retenido || 0
+  const rr  = +r.retencion_renta || 0
+  const sel = +r.impuesto_selectivo || 0
+  const otr = +r.otros_impuestos || 0
+  const pro = +r.propina_legal || 0
+  // DGII formula: factura + itbis + selectivo + otros + propina - retenciones
+  return f + it + sel + otr + pro - itR - isr - rr
+}
+
 function gen606(rows, rncEmisor, year, month) {
   const rnc = (rncEmisor || '').replace(/\D/g, '')
   const period = `${year}${pad(month, 2)}`
@@ -52,7 +69,7 @@ function gen606(rows, rncEmisor, year, month) {
     fmtMoney(r.impuesto_selectivo),
     fmtMoney(r.otros_impuestos),
     fmtMoney(r.propina_legal),
-    fmtMoney(r.monto_total || ((+r.monto_facturado || 0) + (+r.itbis_facturado || 0))),
+    fmtMoney(deriveTotal(r)),
   ].join('|'))
   const header = `606|${rnc}|${period}|${rows.length}`
   return [header, ...lines].join('\n') + '\n'
@@ -75,7 +92,7 @@ function gen607(rows, rncEmisor, year, month) {
     fmtMoney(r.otros_impuestos),
     fmtMoney(r.propina_legal),
     r.forma_pago || '01',
-    fmtMoney(r.monto_total || ((+r.monto_facturado || 0) + (+r.itbis_facturado || 0))),
+    fmtMoney(deriveTotal(r)),
   ].join('|'))
   const header = `607|${rnc}|${period}|${rows.length}`
   return [header, ...lines].join('\n') + '\n'
