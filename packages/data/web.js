@@ -3387,6 +3387,158 @@ export function createWebAPI(supabase, businessId) {
         return { ok: true, ticket_id: ticket.id, new_mesa_id: newMesa.id }
       }, 'web.tickets.transferToMesa'),
 
+      // ── Mesas add-on: running-tab support ─────────────────────────────────
+      // byMesa: load the latest open ticket for a mesa (by supabase_id) plus
+      // all its ticket_items so the POS can re-hydrate them into the cart for
+      // an "add another beer" flow. Verified pg_catalog 2026-05-17.
+      byMesa: (mesaSupabaseId) => tryOr(async () => {
+        if (!mesaSupabaseId) return null
+        const { data: ticket, error: tErr } = await supabase.from('tickets')
+          .select('*')
+          .eq('business_id', bid)
+          .eq('mesa_supabase_id', mesaSupabaseId)
+          .eq('open_status', 'open')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (tErr) throw new Error(tErr.message)
+        if (!ticket?.supabase_id) return null
+        const { data: rows, error: iErr } = await supabase.from('ticket_items')
+          .select('id, supabase_id, name, price, quantity, preparation_notes, weight, service_supabase_id, inventory_item_supabase_id, is_wash, itbis, cost')
+          .eq('business_id', bid)
+          .eq('ticket_supabase_id', ticket.supabase_id)
+          .order('id', { ascending: true })
+        if (iErr) throw new Error(iErr.message)
+        const items = (rows || []).filter(i => i?.name != null).map(i => ({
+          ...i,
+          qty: i.quantity,
+          _cartKey: i.supabase_id || `tk-${i.id}`,
+          _wasExisting: true,
+        }))
+        return { ...ticket, items }
+      }, null),
+
+      // appendItems: insert NEW ticket_items rows onto an already-open ticket
+      // (mesa running tab). Recomputes subtotal/itbis/total from existing +
+      // new items using gross→net extraction (Hard Rule #19). Throws loudly
+      // if the ticket has been closed/voided between load and save (race
+      // against another cashier). Activity-logs ticket_append_items.
+      //
+      // KNOWN GAPS (documented for follow-up):
+      // 1. Commissions: new items do NOT write washer/seller/cajero rows.
+      //    Mesa addon's primary use is beverages (cajero would apply) but
+      //    the edit-mode UI has no empleado picker yet. Until added, the
+      //    worker assigned at original Encolar gets credit for the FIRST
+      //    set of items only — additions are uncommissioned. Track in
+      //    FUTUREX as `mesas-addon: per-append empleado picker`.
+      // 2. journal_entries posting (Hard Rule #20) is not wired here
+      //    because packages/services/journal.js only exists on the
+      //    feat/journal-entries-spine branch. When the spine merges to
+      //    main, this needs the same `_jePost` call pattern as
+      //    tickets.create.
+      appendItems: ({ ticketSupabaseId, items }) => tryWrite(async () => {
+        if (!ticketSupabaseId) throw new Error('Falta ticket_supabase_id')
+        if (!Array.isArray(items) || items.length === 0) throw new Error('No hay items para agregar')
+
+        // Pre-check: ticket must still be open. Loud throw on race.
+        const { data: cur, error: cErr } = await supabase.from('tickets')
+          .select('id, supabase_id, open_status, status, doc_number, mesa_supabase_id')
+          .eq('business_id', bid)
+          .eq('supabase_id', ticketSupabaseId)
+          .maybeSingle()
+        if (cErr) throw new Error(cErr.message)
+        if (!cur) throw new Error('Ticket no encontrado')
+        if (cur.open_status !== 'open' || ['cobrado','done','cancelled','voided','nula','anulado'].includes(String(cur.status || '').toLowerCase())) {
+          throw new Error('Ticket ya cerrado')
+        }
+
+        // Per-business ITBIS factor — loud on fetch error, but a missing
+        // app_settings row is legitimate (default 18% applies).
+        let itbisFactor = 0.18
+        const { data: pctRow, error: pErr } = await supabase.from('app_settings')
+          .select('value').eq('business_id', bid).eq('key', 'itbis_pct').maybeSingle()
+        if (pErr) throw new Error('itbis_pct lookup: ' + pErr.message)
+        const pctNum = Number(pctRow?.value)
+        if (Number.isFinite(pctNum) && pctNum >= 0) itbisFactor = pctNum / 100
+
+        // Look up aplica_itbis/cost for service items (mirrors tickets.create).
+        const svcIds = items.map(i => i.service_id).filter(Boolean)
+        let svcItbisById = new Map()
+        let svcCostById  = new Map()
+        if (svcIds.length) {
+          const { data: svcRows, error: sErr } = await supabase.from('services')
+            .select('id, cost, aplica_itbis').in('id', svcIds).eq('business_id', bid)
+          if (sErr) throw new Error('services lookup: ' + sErr.message)
+          svcItbisById = new Map((svcRows || []).map(r => [r.id, r.aplica_itbis ?? 1]))
+          svcCostById  = new Map((svcRows || []).map(r => [r.id, r.cost || 0]))
+        }
+
+        // Build new ticket_items rows. supabase_id required for sync.
+        const newRows = items.map(i => {
+          const price = Number(i.price) || 0
+          const aplica = i.aplica_itbis !== undefined ? i.aplica_itbis : (i.service_id ? (svcItbisById.get(i.service_id) ?? 1) : 1)
+          const itbis = aplica === 0 ? 0 : parseFloat((price - price / (1 + itbisFactor)).toFixed(2))
+          return {
+            supabase_id:        crypto.randomUUID(),
+            ticket_supabase_id: ticketSupabaseId,
+            business_id:        bid,
+            service_supabase_id: i.service_supabase_id || null,
+            inventory_item_supabase_id: i.inventory_item_supabase_id || null,
+            preparation_notes:  i.preparation_notes || null,
+            name:               i.name,
+            price,
+            cost:               i.cost != null ? Number(i.cost) : (i.service_id ? (svcCostById.get(i.service_id) || 0) : 0),
+            itbis,
+            is_wash:            i.is_wash ?? true,
+            quantity:           i.quantity || i.qty || 1,
+            weight:             i.weight != null ? Number(i.weight) : null,
+          }
+        })
+
+        const ins = await supabase.from('ticket_items').insert(newRows)
+        if (ins.error) throw new Error('ticket_items insert: ' + ins.error.message)
+
+        // Recompute totals from ALL items (existing + new).
+        const { data: allItems, error: aErr } = await supabase.from('ticket_items')
+          .select('price, quantity, itbis')
+          .eq('business_id', bid)
+          .eq('ticket_supabase_id', ticketSupabaseId)
+        if (aErr) throw new Error('recompute fetch: ' + aErr.message)
+        let subtotal = 0, itbis = 0
+        for (const r of (allItems || [])) {
+          const line = (Number(r.price) || 0) * (Number(r.quantity) || 1)
+          subtotal += line
+          itbis    += (Number(r.itbis) || 0) * (Number(r.quantity) || 1)
+        }
+        subtotal = parseFloat(subtotal.toFixed(2))
+        itbis    = parseFloat(itbis.toFixed(2))
+        const total = subtotal // gross convention — ITBIS embedded in price
+
+        const upd = await supabase.from('tickets').update({
+          subtotal, itbis, total, updated_at: new Date().toISOString(),
+        }).eq('business_id', bid).eq('supabase_id', ticketSupabaseId)
+        if (upd.error) throw new Error('tickets update: ' + upd.error.message)
+
+        const addedTotal = newRows.reduce((s, r) => s + r.price * r.quantity, 0)
+        await logActivity({
+          event_type: 'ticket_append_items',
+          severity: 'info',
+          target_type: 'ticket',
+          target_id: cur.id,
+          target_name: cur.doc_number || `#${cur.id}`,
+          amount: parseFloat(addedTotal.toFixed(2)),
+          metadata: {
+            ticket_supabase_id: ticketSupabaseId,
+            mesa_supabase_id: cur.mesa_supabase_id,
+            added_count: newRows.length,
+            added_total: parseFloat(addedTotal.toFixed(2)),
+            new_total: total,
+          },
+        })
+
+        return { ok: true, ticket_supabase_id: ticketSupabaseId, added: newRows.length, subtotal, itbis, total }
+      }, 'web.tickets.appendItems'),
+
       // v2.16.3 — Restaurante H3 "Juntar": merge two open tickets onto a single
       // target mesa. Source ticket items move to target, source guests count
       // adds to target, source mesa frees to 'sucia', source ticket marked
