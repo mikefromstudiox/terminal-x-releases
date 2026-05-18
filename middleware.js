@@ -1116,7 +1116,14 @@ export default async function middleware(request) {
 
   const headers = new Headers(originResponse.headers);
   headers.set('Content-Security-Policy', csp);
-  headers.set('Cache-Control', 'no-store, must-revalidate');
+  // 2026-05-18 — was 'no-store, must-revalidate' which forced Chrome/Firefox
+  // to disable the back/forward cache entirely (Lighthouse: "Page prevented
+  // back/forward cache restoration"). 'no-cache' still requires revalidation
+  // with the origin on every navigation (so per-request CSP nonce stays
+  // unique) but PERMITS bfcache restore for back/forward gestures — instant
+  // restore, no LCP cost. 'private' prevents intermediate proxies from
+  // caching the nonced HTML.
+  headers.set('Cache-Control', 'private, no-cache, must-revalidate');
   headers.delete('content-length');
 
   return new Response(injected, {
