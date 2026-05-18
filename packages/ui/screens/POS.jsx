@@ -85,7 +85,7 @@ const STATUS = {
 // Pure-presentation row of small circular buttons. Crimson when selected,
 // slate when occupied-by-someone-else, white-border when free. Click toggles
 // selection. Parent owns the `selected` state and the `mesas` array.
-function MesaBar({ mesas, selected, occupiedSids, onSelect, onOccupiedClick, lang }) {
+function MesaBar({ mesas, selected, occupiedSids, onSelect, lang }) {
   if (!mesas || mesas.length === 0) return null
   return (
     <div>
@@ -100,19 +100,18 @@ function MesaBar({ mesas, selected, occupiedSids, onSelect, onOccupiedClick, lan
           const cls = isSelected
             ? 'bg-[#b3001e] text-white border-[#b3001e]'
             : isOccupied
-              ? 'bg-[#b3001e]/80 text-white border-[#b3001e] cursor-not-allowed'
+              ? 'bg-slate-200 dark:bg-white/20 text-slate-600 dark:text-white/80 border-slate-300 dark:border-white/30'
               : 'bg-transparent text-slate-500 dark:text-white/60 border-slate-300 dark:border-white/20 hover:border-[#b3001e]/50 hover:text-[#b3001e]'
           const title = isOccupied
-            ? (lang === 'es' ? `Mesa ${m.name} — Ocupada (revisa la Cola)` : `Table ${m.name} — Occupied (check Queue)`)
+            ? (lang === 'es' ? `Mesa ${m.name} — Ocupada` : `Table ${m.name} — Occupied`)
             : (lang === 'es' ? `Mesa ${m.name}` : `Table ${m.name}`)
           return (
             <button
               key={m.supabase_id || m.id}
               type="button"
-              onClick={() => isOccupied ? onOccupiedClick?.(m) : onSelect(m)}
+              onClick={() => onSelect(m)}
               title={title}
               aria-pressed={isSelected}
-              aria-disabled={isOccupied}
               className={`${base} ${cls}`}
             >
               {m.name}
@@ -938,11 +937,6 @@ function ServicePOS() {
         })),
       })
 
-      // Optimistic occupied stamp: queue.active poll runs every 8s, so without
-      // this the mesa visually clears between save and the next tick.
-      if (tablesAddonOn && selectedMesa?.supabase_id) {
-        setOccupiedMesaSids(prev => { const n = new Set(prev); n.add(selectedMesa.supabase_id); return n })
-      }
       clearForm()
       if (result?.offlineReason) {
         flash(`OFFLINE: ${result.offlineReason}`)
@@ -1542,7 +1536,6 @@ function ServicePOS() {
                 if (!m) { setSelectedMesa(null); return }
                 setSelectedMesa(prev => prev?.supabase_id === m.supabase_id ? null : m)
               }}
-              onOccupiedClick={(m) => navigate('/queue', { state: { openCobrarForMesa: m.supabase_id } })}
               lang={lang}
             />
           )}
@@ -3445,7 +3438,6 @@ function RetailPOS() {
                 if (!m) { setSelectedMesa(null); return }
                 setSelectedMesa(prev => prev?.supabase_id === m.supabase_id ? null : m)
               }}
-              onOccupiedClick={(m) => navigate('/queue', { state: { openCobrarForMesa: m.supabase_id } })}
               lang={lang}
             />
           </div>

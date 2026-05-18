@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, Plus, ChevronDown, CheckCircle2, Loader2, RefreshCw, AlertCircle, Trash2, Pencil, Lock, MessageCircle } from 'lucide-react'
 import { useLang } from '../i18n'
 import { useAPI, usePrinterAPI } from '../context/DataContext'
@@ -77,7 +76,6 @@ function mapRow(row) {
     amount:      row.total || 0,
     createdAt:   row.ticket_created || row.created_at,
     status:      FROM_DB[row.status] || 'pendiente',
-    mesa_supabase_id: row.mesa_supabase_id || null,
     mesaName:    row.mesa_name || null,
   }
 }
@@ -118,13 +116,13 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
   return (
     <div className={`border-b border-slate-100 dark:border-white/10 px-3 py-3 ${sc.bg}`}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[13px] font-bold text-sky-600 truncate max-w-[120px]">{ticket.ticketNo}</span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[13px] font-bold text-sky-600 truncate max-w-[120px]">{ticket.ticketNo}</span>
           {ticket.mesaName && (
-            <span className="text-[10px] font-bold bg-[#b3001e] text-white rounded-full px-1.5 py-0.5 leading-none" title={lang === 'es' ? `Mesa ${ticket.mesaName}` : `Table ${ticket.mesaName}`}>M·{ticket.mesaName}</span>
+            <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-[#b3001e] text-white text-[10px] font-bold leading-none">M·{ticket.mesaName}</span>
           )}
-          <span className="text-[11px] text-slate-400 dark:text-white/40 shrink-0">{fmtTime(ticket.createdAt)}</span>
         </div>
+        <span className="text-[11px] text-slate-400 dark:text-white/40 shrink-0">{fmtTime(ticket.createdAt)}</span>
       </div>
       <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">
         {ticket.plate || ticket.clientName || 'Al Portador'}
@@ -208,10 +206,10 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
   return (
     <div className={`flex items-center h-14 w-full border-b border-slate-100 dark:border-white/10 px-5 transition-colors group ${sc.bg} hover:brightness-95`}>
 
-      <div className="w-[64px] shrink-0 flex items-center gap-1.5">
-        <span className="text-[11px] font-semibold text-sky-600 truncate">{ticket.ticketNo}</span>
+      <div className="w-[64px] shrink-0 flex items-center gap-1">
+        <span className="text-[11px] font-semibold text-sky-600 truncate block">{ticket.ticketNo}</span>
         {ticket.mesaName && (
-          <span className="text-[9px] font-bold bg-[#b3001e] text-white rounded-full px-1.5 py-0.5 leading-none shrink-0" title={lang === 'es' ? `Mesa ${ticket.mesaName}` : `Table ${ticket.mesaName}`}>M·{ticket.mesaName}</span>
+          <span className="shrink-0 px-1 py-0.5 rounded bg-[#b3001e] text-white text-[9px] font-bold leading-none">M·{ticket.mesaName}</span>
         )}
       </div>
 
@@ -491,20 +489,6 @@ export default function Queue() {
     })
     return unsub
   }, [api])
-
-  // Mesas add-on: when navigated from POS via an occupied-mesa click, auto-open
-  // the Cobrar modal for that mesa's open ticket. State is consumed once.
-  const location = useLocation()
-  const navigate = useNavigate()
-  const openCobrarForMesa = location?.state?.openCobrarForMesa || null
-  useEffect(() => {
-    if (!openCobrarForMesa || !queue?.length) return
-    const ticket = queue.find(t => t.mesa_supabase_id === openCobrarForMesa)
-    if (ticket) {
-      cobrar(ticket)
-      navigate(location.pathname, { replace: true, state: {} })
-    }
-  }, [openCobrarForMesa, queue])
 
   function flash(msg) {
     setToast(msg)
