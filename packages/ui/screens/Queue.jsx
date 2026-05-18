@@ -76,7 +76,6 @@ function mapRow(row) {
     amount:      row.total || 0,
     createdAt:   row.ticket_created || row.created_at,
     status:      FROM_DB[row.status] || 'pendiente',
-    mesaName:    row.mesa_name || null,
   }
 }
 
@@ -116,12 +115,7 @@ function QueueCard({ ticket, washers, assigningId, setAssigningId, onCycle, onAs
   return (
     <div className={`border-b border-slate-100 dark:border-white/10 px-3 py-3 ${sc.bg}`}>
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[13px] font-bold text-sky-600 truncate max-w-[120px]">{ticket.ticketNo}</span>
-          {ticket.mesaName && (
-            <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-[#b3001e] text-white text-[10px] font-bold leading-none">M·{ticket.mesaName}</span>
-          )}
-        </div>
+        <span className="text-[13px] font-bold text-sky-600 truncate max-w-[120px]">{ticket.ticketNo}</span>
         <span className="text-[11px] text-slate-400 dark:text-white/40 shrink-0">{fmtTime(ticket.createdAt)}</span>
       </div>
       <p className="text-[13px] font-semibold text-slate-800 dark:text-white truncate">
@@ -206,11 +200,8 @@ function QueueRow({ ticket, washers, assigningId, setAssigningId, onCycle, onAss
   return (
     <div className={`flex items-center h-14 w-full border-b border-slate-100 dark:border-white/10 px-5 transition-colors group ${sc.bg} hover:brightness-95`}>
 
-      <div className="w-[64px] shrink-0 flex items-center gap-1">
+      <div className="w-[64px] shrink-0">
         <span className="text-[11px] font-semibold text-sky-600 truncate block">{ticket.ticketNo}</span>
-        {ticket.mesaName && (
-          <span className="shrink-0 px-1 py-0.5 rounded bg-[#b3001e] text-white text-[9px] font-bold leading-none">M·{ticket.mesaName}</span>
-        )}
       </div>
 
       <div className="w-[150px] pr-2">

@@ -58,11 +58,6 @@ const PLAN_FEATURES = {
     //  - restaurant_salon_dashboard: manager Resumen del Salón.
     // Distinct keys from `reservations` (dealership) and `salon_dashboard` (barbería).
     'restaurant_reservations', 'restaurant_salon_dashboard',
-    // 2026-05-17 — Mesas add-on: lightweight table-tag for non-restaurant
-    // verticals. Owner toggle in Mi Empresa renders a circle-bar in POS/Queue
-    // that stamps tickets.mesa_supabase_id. No KDS / no Menú / no full mesas
-    // screen — restaurant + hybrid clients already have the real flow.
-    'tables_addon',
     // v2.7.1
     'loyalty',
     // v2.16.1 — appointments + stylist_schedules promoted from Pro MAX
@@ -122,8 +117,6 @@ const PLAN_FEATURES = {
     'loans', 'vehicles',
     // v2.16.3 — Restaurante hardening keys (inherited from Pro PLUS).
     'restaurant_reservations', 'restaurant_salon_dashboard',
-    // 2026-05-17 — Mesas add-on (inherited from Pro PLUS).
-    'tables_addon',
     'pawn_items', 'loan_analytics', 'vehicle_history', 'stylist_schedules',
     'invoicing',
     'dealership', 'dealership_crm', 'dealership_docs',
