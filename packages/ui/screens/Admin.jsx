@@ -5,8 +5,9 @@ import {
   Eye, EyeOff, AlertCircle, FileText, Wifi, WifiOff, ExternalLink,
   Check, Coffee, Lock, ChevronUp, ChevronDown, Trash2, CreditCard,
   CloudUpload, ToggleLeft, Scissors, Copy, QrCode, Download,
-  Briefcase, Link2, Unlink, ArrowRight,
+  Briefcase, Link2, Unlink, ArrowRight, GripVertical, AlertTriangle,
 } from 'lucide-react'
+import { Reorder, motion } from 'framer-motion'
 import QRCode from 'qrcode'
 import ManagerCardModal from '../components/ManagerCardModal'
 import { useLang } from '../i18n'
@@ -639,25 +640,58 @@ function Servicios() {
 
   const categories = [...new Set(list.map(s => s.category))].sort((a, b) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999))
 
+  // v2.17.8 — Bulk-renumber every category sequentially (0..N-1) on every
+  // reorder. Kills the legacy `orden=999` floating bug for good: any tab that
+  // was never given a real orden gets one as soon as the user touches the row.
+  // Used by BOTH drag-and-drop drop handler AND the hover arrow buttons.
+  const reorderingRef = useRef(false)
+  async function reorderCategories(newOrderArr) {
+    if (reorderingRef.current) return
+    if (!Array.isArray(newOrderArr) || !newOrderArr.length) return
+    reorderingRef.current = true
+    // Optimistic local state — kills the visual "snap-back" while writes fly
+    const optimistic = {}
+    newOrderArr.forEach((name, i) => { optimistic[name] = i })
+    const prevSnapshot = { ...catOrder }
+    setCatOrder(prev => ({ ...prev, ...optimistic }))
+    try {
+      const cats = (await api?.categorias?.all?.()) || []
+      const byName = new Map(cats.map(c => [c.nombre, c]))
+      // Single batched pass: every category gets a fresh sequential orden.
+      // Missing rows (free-form category strings that never had a DB row) get
+      // created so they stop floating to the end on the next pull.
+      for (let i = 0; i < newOrderArr.length; i++) {
+        const name = newOrderArr[i]
+        const rec = byName.get(name)
+        if (rec) {
+          if ((rec.orden ?? -1) !== i) await api.categorias.update({ id: rec.id, orden: i })
+        } else {
+          await api.categorias.create({ nombre: name, orden: i })
+        }
+      }
+      // Source-of-truth refresh — never trust local after a multi-write batch.
+      const fresh = (await api?.categorias?.all?.()) || []
+      const next = {}
+      fresh.forEach(c => { next[c.nombre] = c.orden ?? 999 })
+      setCatOrder(next)
+    } catch (e) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.servicios.reorder' }) } catch {}
+      setCatOrder(prevSnapshot) // rollback
+      show(L('Error al reordenar categorías', 'Error reordering categories'), 'error')
+    } finally {
+      reorderingRef.current = false
+    }
+  }
+
+  // Hover-arrow fallback so click-only / a11y users still have a deterministic
+  // single-step reorder. Internally routes through the same bulk-renumber.
   async function moveCat(cat, dir) {
     const idx = categories.indexOf(cat)
     const swapIdx = idx + dir
     if (swapIdx < 0 || swapIdx >= categories.length) return
-    const other = categories[swapIdx]
-    const catOrderA = catOrder[cat] ?? idx
-    const catOrderB = catOrder[other] ?? swapIdx
-    // Swap orders
-    try {
-      const cats = (await api?.categorias?.all?.()) || []
-      const catA = cats.find(c => c.nombre === cat)
-      const catB = cats.find(c => c.nombre === other)
-      if (catA) await api.categorias.update({ id: catA.id, orden: catOrderB })
-      else await api.categorias.create({ nombre: cat, orden: catOrderB })
-      if (catB) await api.categorias.update({ id: catB.id, orden: catOrderA })
-      else await api.categorias.create({ nombre: other, orden: catOrderA })
-      setCatOrder(prev => ({ ...prev, [cat]: catOrderB, [other]: catOrderA }))
-    } catch (_aetherErr) {
-      try { (typeof window !== 'undefined') && window.__txReportError?.(_aetherErr, { severity: 'error', category: 'admin.servicios' }) } catch {} show(L('Error al reordenar', 'Error reordering'), 'error') }
+    const next = [...categories]
+    next.splice(swapIdx, 0, next.splice(idx, 1)[0])
+    await reorderCategories(next)
   }
 
   function renameCat(oldName) {
@@ -689,20 +723,47 @@ function Servicios() {
   }
 
   async function deleteCat(catName) {
-    const count = list.filter(s => s.category === catName).length
+    const affected = list.filter(s => s.category === catName)
+    const count = affected.length
+    // 2026-05-18 — used to dead-end with "mueva primero". Now offers to
+    // bulk-reassign to 'Sin categoría' so the delete is one click.
+    const REORPHAN_LABEL = 'Sin categoría'
+    let willReassign = false
     if (count > 0) {
-      show(L(`"${catName}" tiene ${count} servicio(s). Mueva o elimine primero.`, `"${catName}" has ${count} service(s). Move or delete them first.`), 'error')
-      return
+      const msg = L(
+        `La categoría "${catName}" tiene ${count} servicio(s).\n\nReasignar a "${REORPHAN_LABEL}" y eliminar la categoría?`,
+        `Category "${catName}" has ${count} service(s).\n\nReassign to "${REORPHAN_LABEL}" and delete the category?`,
+      )
+      const ok = window.confirm(msg)
+      if (!ok) return
+      willReassign = true
+    } else {
+      const ok = window.confirm(L(`Eliminar la categoría "${catName}"?`, `Delete category "${catName}"?`))
+      if (!ok) return
     }
-    // window.confirm is supported in Electron — keep it.
-    const ok = window.confirm(L(`Eliminar la categoría "${catName}"?`, `Delete category "${catName}"?`))
-    if (!ok) return
     try {
+      if (willReassign) {
+        // Ensure the destination category exists so the moved services
+        // still show up in their own tab instead of vanishing.
+        const cats = (await api?.categorias?.all?.()) || []
+        const dest = cats.find(c => c.nombre === REORPHAN_LABEL)
+        if (!dest) {
+          await api.categorias.create({ nombre: REORPHAN_LABEL, orden: categories.length })
+        }
+        // Bulk-reassign. Sequential await keeps it simple + activity_log
+        // entries land in order. Failures bubble to the outer catch.
+        for (const s of affected) {
+          await api.services.update({ id: s.id, category: REORPHAN_LABEL })
+        }
+      }
       const cats = (await api?.categorias?.all?.()) || []
       const catRec = cats.find(c => c.nombre === catName)
       if (catRec) await api.categorias.delete(catRec.id)
-      show(L('Categoría eliminada ✓', 'Category deleted ✓'))
-      if (activeTab === catName) setActiveTab('all')
+      const msg = willReassign
+        ? L(`Categoría eliminada (${count} servicio(s) movidos a "${REORPHAN_LABEL}") ✓`, `Category deleted (${count} service(s) moved to "${REORPHAN_LABEL}") ✓`)
+        : L('Categoría eliminada ✓', 'Category deleted ✓')
+      show(msg)
+      if (activeTab === catName) setActiveTab(willReassign ? REORPHAN_LABEL : 'all')
       load()
     } catch (e) {
       try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'admin.onsave' }) } catch {}
@@ -787,6 +848,55 @@ function Servicios() {
     finally { setDeleting(false) }
   }
 
+  // v2.17.8 — Hard-delete an INACTIVE service permanently. Only owner sees
+  // the red button (gated in the row). Pre-check via api.services.refCount
+  // blocks the destructive call when historical ticket_items still reference
+  // the service — those owners can only use the soft-hide.
+  async function hardDeleteInactiveService(s) {
+    if (!s || s.active) return
+    if (user?.role !== 'owner') { show(L('Solo el propietario puede eliminar', 'Owner-only action'), 'error'); return }
+    setPromptModal({
+      title: L(`Eliminar definitivamente "${s.name}"? Esta acción NO se puede deshacer.`, `Permanently delete "${s.name}"? This CANNOT be undone.`),
+      initial: '',
+      confirmLabel: L('Eliminar', 'Delete'),
+      confirmDanger: true,
+      hideInput: true,
+      onSave: async () => {
+        try {
+          // Pre-check: count past ticket_items references. If > 0, block.
+          const refs = await api?.services?.refCount?.(s.id)
+          const refCount = Number(refs?.count ?? refs ?? 0)
+          if (refCount > 0) {
+            show(L(`No se puede eliminar: usado en ${refCount} ticket(s) pasados. Solo desactivar.`, `Cannot delete: referenced by ${refCount} past ticket(s). Soft-hide only.`), 'error')
+            return
+          }
+          const r = await api.services.delete?.({ id: s.id })
+          if (r?.softDeleted) {
+            show(L('No se pudo eliminar (referencias históricas). Sigue oculto.', 'Could not hard-delete (historical refs). Still hidden.'), 'warn')
+          } else {
+            show(L('Servicio eliminado ✓', 'Service deleted ✓'))
+            try {
+              await api?.activity?.log?.({
+                event_type: 'service_hard_deleted',
+                severity: 'critical',
+                target_type: 'service',
+                target_id: s.id,
+                target_name: s.name,
+                amount: s.price,
+                reason: 'manual hard delete from /config/servicios',
+                metadata: { source: 'admin.servicios.hard_delete', user_id: user?.id || null },
+              })
+            } catch {}
+          }
+          load()
+        } catch (err) {
+          try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'admin.servicios.hard_delete' }) } catch {}
+          show(err?.message || L('Error al eliminar', 'Delete error'), 'error')
+        }
+      },
+    })
+  }
+
   // Quick-delete from list row — skips the edit panel so the user doesn't
   // have to scroll the form to find the "Eliminar servicio" button.
   async function quickDeleteService(s) {
@@ -817,36 +927,70 @@ function Servicios() {
               }`}>
               {L('Todos', 'All')} ({filtered.length})
             </button>
-            {categories.map((c, i) => (
-              <div key={c} className="flex items-center">
-                {activeTab === c && i > 0 && (
-                  <button onClick={() => moveCat(c, -1)} className="p-0.5 text-slate-400 hover:text-[#0C447C] dark:text-white/40 dark:hover:text-blue-400" title={L('Mover izquierda', 'Move left')}>
-                    <ChevronUp size={12} className="rotate-[-90deg]" />
-                  </button>
-                )}
-                <button onClick={() => setActiveTab(c)}
-                  className={`shrink-0 px-3 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
-                    activeTab === c ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white'
-                  }`}>
-                  {c} ({filtered.filter(s => s.category === c).length})
-                </button>
-                {activeTab === c && i < categories.length - 1 && (
-                  <button onClick={() => moveCat(c, 1)} className="p-0.5 text-slate-400 hover:text-[#0C447C] dark:text-white/40 dark:hover:text-blue-400" title={L('Mover derecha', 'Move right')}>
-                    <ChevronDown size={12} className="rotate-[-90deg]" />
-                  </button>
-                )}
-                {activeTab === c && canDelete && (
-                  <>
-                    <button onClick={() => renameCat(c)} className="p-1 ml-0.5 text-slate-400 hover:text-sky-600 dark:text-white/40 dark:hover:text-sky-400" title={L('Renombrar categoría', 'Rename category')}>
-                      <Edit2 size={11} />
+            {/* v2.17.8 — framer-motion drag-and-drop. Each tab is its own
+                handle (pointerDown anywhere starts the drag). Other tabs
+                slide aside live via layout animation; release commits the
+                new order via reorderCategories bulk-renumber. Hover arrows
+                remain as a click-only / a11y fallback. */}
+            <Reorder.Group
+              axis="x"
+              values={categories}
+              onReorder={(next) => {
+                // Optimistic local order (paint instantly), commit async.
+                const optimistic = {}
+                next.forEach((name, i) => { optimistic[name] = i })
+                setCatOrder(prev => ({ ...prev, ...optimistic }))
+                reorderCategories(next)
+              }}
+              className="flex items-center gap-0 flex-wrap"
+              as="div"
+            >
+              {categories.map((c, i) => (
+                <Reorder.Item
+                  key={c}
+                  value={c}
+                  as="div"
+                  layout
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                  whileDrag={{ scale: 1.05, zIndex: 10, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.25)' }}
+                  className="group flex items-center cursor-grab active:cursor-grabbing select-none touch-none"
+                  title={L('Arrastra para reordenar', 'Drag to reorder')}
+                >
+                  {/* Hover arrow LEFT — a11y/click-only fallback */}
+                  {i > 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); moveCat(c, -1) }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-[#0C447C] dark:text-white/40 dark:hover:text-blue-400"
+                      title={L('Mover izquierda', 'Move left')}>
+                      <ChevronUp size={12} className="rotate-[-90deg]" />
                     </button>
-                    <button onClick={() => deleteCat(c)} className="p-1 text-slate-400 hover:text-red-600 dark:text-white/40 dark:hover:text-red-400" title={L('Eliminar categoría', 'Delete category')}>
-                      <Trash2 size={11} />
+                  )}
+                  <button onPointerDown={(e) => { /* allow drag */ }} onClick={() => setActiveTab(c)}
+                    className={`shrink-0 px-3 py-2.5 text-[12px] font-semibold border-b-2 -mb-px transition-colors ${
+                      activeTab === c ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 dark:text-white/60 hover:text-slate-700 dark:hover:text-white'
+                    }`}>
+                    {c} ({filtered.filter(s => s.category === c).length})
+                  </button>
+                  {/* Hover arrow RIGHT — a11y/click-only fallback */}
+                  {i < categories.length - 1 && (
+                    <button onClick={(e) => { e.stopPropagation(); moveCat(c, 1) }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-[#0C447C] dark:text-white/40 dark:hover:text-blue-400"
+                      title={L('Mover derecha', 'Move right')}>
+                      <ChevronDown size={12} className="rotate-[-90deg]" />
                     </button>
-                  </>
-                )}
-              </div>
-            ))}
+                  )}
+                  {activeTab === c && canDelete && (
+                    <>
+                      <button onClick={(e) => { e.stopPropagation(); renameCat(c) }} className="p-1 ml-0.5 text-slate-400 hover:text-sky-600 dark:text-white/40 dark:hover:text-sky-400" title={L('Renombrar categoría', 'Rename category')}>
+                        <Edit2 size={11} />
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteCat(c) }} className="p-1 text-slate-400 hover:text-red-600 dark:text-white/40 dark:hover:text-red-400" title={L('Eliminar categoría', 'Delete category')}>
+                        <Trash2 size={11} />
+                      </button>
+                    </>
+                  )}
+                </Reorder.Item>
+              ))}
+            </Reorder.Group>
             {canDelete && (
               <button type="button" onClick={openCreateCatPrompt} className="shrink-0 flex items-center gap-1 px-2 py-1 ml-1 text-[11px] text-slate-500 dark:text-white/60 hover:text-[#0C447C] dark:hover:text-blue-400 border border-dashed border-slate-300 dark:border-white/20 rounded-md" title={L('Nueva categoría', 'New category')}>
                 <Plus size={10} /> {L('Categoría', 'Category')}
@@ -893,6 +1037,11 @@ function Servicios() {
                     <button onClick={() => openEdit(s)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={15} /></button>
                     <button onClick={() => quickDeleteService(s)} title={L('Eliminar', 'Delete')} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"><Trash2 size={15} /></button>
                     <button onClick={() => toggleActive(s)} title={s.active ? L('Desactivar', 'Deactivate') : L('Activar', 'Activate')} className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={15} /></button>
+                    {!s.active && user?.role === 'owner' && (
+                      <button onClick={() => hardDeleteInactiveService(s)} title={L('Eliminar definitivamente', 'Delete permanently')} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-[#b3001e] dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/20 transition-colors border border-[#b3001e]/40">
+                        <AlertTriangle size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <span className="hidden md:inline w-36 text-[12px] text-slate-400 dark:text-white/40 truncate">{s.name_en || '—'}</span>
@@ -905,6 +1054,11 @@ function Servicios() {
                   <button onClick={() => openEdit(s)} title={L('Editar', 'Edit')} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"><Edit2 size={13} /></button>
                   <button onClick={() => quickDeleteService(s)} title={L('Eliminar', 'Delete')} className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"><Trash2 size={13} /></button>
                   <button onClick={() => toggleActive(s)} title={s.active ? L('Desactivar', 'Deactivate') : L('Activar', 'Activate')} className={`p-1.5 rounded-lg transition-colors ${s.active ? 'text-slate-400 dark:text-white/40 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10' : 'text-slate-300 dark:text-white/30 hover:text-green-600 dark:hover:text-emerald-400 hover:bg-green-50 dark:hover:bg-emerald-500/10'}`}><Power size={13} /></button>
+                  {!s.active && user?.role === 'owner' && (
+                    <button onClick={() => hardDeleteInactiveService(s)} title={L('Eliminar definitivamente', 'Delete permanently')} className="p-1.5 rounded-lg text-[#b3001e] dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/20 transition-colors border border-[#b3001e]/40">
+                      <AlertTriangle size={13} />
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -1024,6 +1178,9 @@ function Servicios() {
         <PromptModal
           title={promptModal.title}
           initial={promptModal.initial}
+          confirmLabel={promptModal.confirmLabel}
+          confirmDanger={promptModal.confirmDanger}
+          hideInput={promptModal.hideInput}
           onSave={async (v) => {
             const cb = promptModal.onSave
             setPromptModal(null)
@@ -1039,25 +1196,27 @@ function Servicios() {
 }
 
 // ── Prompt modal (Electron blocks window.prompt → use this instead) ──────────
-function PromptModal({ title, initial, onSave, onClose, lang }) {
+function PromptModal({ title, initial, onSave, onClose, lang, confirmLabel, confirmDanger, hideInput }) {
   const L = (es, en) => lang === 'es' ? es : en
   const [val, setVal] = useState(initial || '')
   const ref = useRef(null)
-  useEffect(() => { ref.current?.focus(); ref.current?.select?.() }, [])
+  useEffect(() => { if (!hideInput) { ref.current?.focus(); ref.current?.select?.() } }, [hideInput])
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-slate-200 dark:border-white/10">
           <p className="text-sm font-bold text-slate-700 dark:text-white">{title}</p>
         </div>
-        <div className="p-5">
-          <input ref={ref} type="text" value={val} onChange={e => setVal(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') onSave(val); if (e.key === 'Escape') onClose() }}
-            className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg bg-white dark:bg-white/5 text-sm text-slate-800 dark:text-white" />
-        </div>
+        {!hideInput && (
+          <div className="p-5">
+            <input ref={ref} type="text" value={val} onChange={e => setVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') onSave(val); if (e.key === 'Escape') onClose() }}
+              className="w-full px-3 py-2 border border-slate-200 dark:border-white/10 rounded-lg bg-white dark:bg-white/5 text-sm text-slate-800 dark:text-white" />
+          </div>
+        )}
         <div className="px-5 py-3 border-t border-slate-200 dark:border-white/10 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-1.5 text-[12px] font-bold text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/10 rounded-lg">{L('Cancelar', 'Cancel')}</button>
-          <button onClick={() => onSave(val)} className="px-4 py-1.5 text-[12px] font-bold text-white bg-[#0C447C] hover:bg-[#0a3a6a] rounded-lg">{L('Guardar', 'Save')}</button>
+          <button onClick={() => onSave(val)} className={`px-4 py-1.5 text-[12px] font-bold text-white rounded-lg ${confirmDanger ? 'bg-[#b3001e] hover:bg-[#8a0017]' : 'bg-[#0C447C] hover:bg-[#0a3a6a]'}`}>{confirmLabel || L('Guardar', 'Save')}</button>
         </div>
       </div>
     </div>
