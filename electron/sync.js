@@ -2984,8 +2984,16 @@ const PULL_TABLES = [
   // v2.16.x — Ofertas (product bundles)
   { name: 'ofertas', strategy: 'lww',
     cols: ['name','description','price','active','starts_at','ends_at','created_at','updated_at'] },
+  // v2.17.10 (2026-05-18) — oferta_supabase_id was missing from both cols AND
+  // fkCols, so pullUpsertRow built an INSERT that excluded the column entirely.
+  // Local schema (electron/database.js:1995) has `oferta_supabase_id TEXT NOT NULL`,
+  // so every single row failed with "NOT NULL constraint failed". Bug surfaced
+  // on Ranoza's first desktop install — 44 of 44 oferta_items rejected, combos
+  // invisible in the POS. Treating it as an FK in fkCols matches the pattern
+  // used by every other parent reference (e.g. waiter_empleado_supabase_id on
+  // mesas, client_membership_supabase_id on club_redemptions).
   { name: 'oferta_items', strategy: 'lww', cols: ['qty','created_at','updated_at'],
-    fkCols: { service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
+    fkCols: { oferta_supabase_id: 'ofertas', service_supabase_id: 'services', inventory_item_supabase_id: 'inventory_items' } },
   { name: 'ncf_sequences', strategy: 'lww', cols: ['type','prefix','current_number','limit_number','valid_until','active','enabled','updated_at'] },
   { name: 'empleados', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','cedula','phone','tipo','salary','start_date','active','ref_id','puesto','email','bank_account','tss_id','role','comision_pct','updated_at'] },
   { name: 'categorias_servicio', strategy: 'lww', naturalKey: 'nombre', cols: ['nombre','orden','updated_at'] },
