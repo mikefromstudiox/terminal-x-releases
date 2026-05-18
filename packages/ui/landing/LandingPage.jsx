@@ -743,7 +743,7 @@ export default function LandingPage({ section, forceLang }) {
               {L('Empezar 7 días gratis', 'Start 7-day free trial')}
             </a>
           </div>
-          <p className="mt-6 text-xs text-black/40 font-semibold tracking-wide">
+          <p className="mt-6 text-xs text-black/60 font-semibold tracking-wide">
             +1 (809) 828-2971 · {L('Lunes a sábado', 'Mon–Sat')} · 9am–7pm
           </p>
         </div>
@@ -864,7 +864,7 @@ export default function LandingPage({ section, forceLang }) {
                   <h3 className="text-lg font-bold text-black">{fp.name}</h3>
                   <p className="text-xs text-black/50 mt-1 font-medium">{fp.desc}</p>
                   <p className="text-3xl font-extrabold text-black mt-3">{fp.price}<span className="text-sm font-normal text-black/50">{fp.sub}</span></p>
-                  {fp.annual && <p className="text-[11px] text-black/40 mt-1">{fp.annual}</p>}
+                  {fp.annual && <p className="text-[11px] text-black/60 mt-1">{fp.annual}</p>}
                   {fp.endpoint && <p className="text-[11px] text-black/60 font-medium mt-1">{fp.endpoint}</p>}
                   {fp.overage && <p className="text-[11px] text-[#b3001e] font-medium mt-1">{fp.overage}</p>}
                 </div>
@@ -887,7 +887,7 @@ export default function LandingPage({ section, forceLang }) {
               </div>
             ))}
           </div>
-          <p className="text-center mt-6 text-xs text-black/40">
+          <p className="text-center mt-6 text-xs text-black/60">
             {L('Necesitas punto de venta?', 'Need a point of sale?')}{' '}
             <a href="#pricing" className="text-[#b3001e] font-semibold hover:underline">
               {L('Ver planes POS', 'See POS plans')} <ArrowRight size={10} className="inline" />
@@ -1015,7 +1015,7 @@ export default function LandingPage({ section, forceLang }) {
                   <h3 className="text-base font-bold text-black leading-tight">{h.title}</h3>
                   <p className="text-sm text-black/60 mt-2 leading-relaxed">{h.desc}</p>
                   <p className="text-2xl font-extrabold text-black mt-4">{h.price}</p>
-                  <p className="text-[11px] text-black/40 uppercase tracking-wider mt-1">{L('Pago unico', 'One-time')}</p>
+                  <p className="text-[11px] text-black/60 uppercase tracking-wider mt-1">{L('Pago unico', 'One-time')}</p>
                 </div>
               )
             })}
