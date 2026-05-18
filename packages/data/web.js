@@ -4859,17 +4859,24 @@ export function createWebAPI(supabase, businessId) {
           .eq('status', 'cobrado')
           .gte('created_at', `${d}T00:00:00`)
           .lte('created_at', `${d}T23:59:59`)
-        if (!rows) return { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, totalVendido: 0, totalCobrado: 0, count: 0 }
+        if (!rows) return { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, pedidos_ya: 0, totalVendido: 0, totalCobrado: 0, count: 0 }
         // payment_method may come from desktop (Spanish: efectivo/tarjeta/...) OR
         // from web (English: cash/card/transfer/check/credit). Normalize both.
+        // 2026-05-18 Fix F — `pedidos_ya` channel was missing from the alias map
+        // AND from the result bucket initializer, so every PY sale landed in
+        // result.pedidos_ya which the cashier never saw → till looked over by
+        // the PY amount every shift. PY sales are non-cash receivables (paid
+        // by aggregator, not at the till) so they're counted in totalVendido
+        // but NOT in totalCobrado (mirrors credito behavior).
         const PM_ALIAS = {
           cash: 'efectivo', efectivo: 'efectivo',
           card: 'tarjeta',  tarjeta: 'tarjeta',
           transfer: 'transferencia', transferencia: 'transferencia',
           check: 'cheque',  cheque: 'cheque',
           credit: 'credito', credito: 'credito',
+          pedidos_ya: 'pedidos_ya', py: 'pedidos_ya', 'pedidos-ya': 'pedidos_ya',
         }
-        const result = { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0 }
+        const result = { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, pedidos_ya: 0 }
         let totalVendido = 0, totalCobrado = 0
         for (const r of rows) {
           const tot = Number(r.total || 0)
@@ -4888,13 +4895,14 @@ export function createWebAPI(supabase, businessId) {
               const pm = PM_ALIAS[p?.method] || p?.method || 'efectivo'
               const amt = Number(p?.amount || 0)
               result[pm] = (result[pm] || 0) + amt
-              if (pm !== 'credito') totalCobrado += amt
+              // Non-cash channels (credito + pedidos_ya) settle outside the till.
+              if (pm !== 'credito' && pm !== 'pedidos_ya') totalCobrado += amt
             }
           } else {
             const raw = r.payment_method || 'efectivo'
             const pm = PM_ALIAS[raw] || raw
             result[pm] = (result[pm] || 0) + tot
-            if (pm !== 'credito') totalCobrado += tot
+            if (pm !== 'credito' && pm !== 'pedidos_ya') totalCobrado += tot
           }
         }
         // v2.6 — Licoreria bottle-deposit reconciliation. Two extra scans:
