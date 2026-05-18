@@ -3239,7 +3239,13 @@ export function createWebAPI(supabase, businessId) {
         // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
         const { data: curMp } = await supabase.from('tickets').select('rev').eq('id', ticketId).eq('business_id', bid).maybeSingle()
         updates.rev = Number(curMp?.rev || 0) + 1
-        throwSupaError(await supabase.from('tickets').update(updates).eq('id', ticketId).eq('business_id', bid))
+        // 2026-05-18 followup #3 — assertAffected guards against RLS silent denial
+        // on markPaid. If 0 rows update, cashier sees "paid" but ticket stays open
+        // → ghost-sale risk.
+        await assertAffected(
+          supabase.from('tickets').update(updates).eq('id', ticketId).eq('business_id', bid).select('id'),
+          'web.tickets.markPaid'
+        )
 
         // Update queue status to done — match by ticket's supabase_id
         const { data: t } = await supabase.from('tickets').select('supabase_id').eq('id', ticketId).maybeSingle()
@@ -3266,13 +3272,19 @@ export function createWebAPI(supabase, businessId) {
         // round-tripped to DGII end up with a non-null tickets.ncf column.
         const priorRow = (await supabase.from('tickets').select('supabase_id, doc_number, total, descuento, payment_method, tipo_venta, client_supabase_id, ncf, ecf_result, rev').eq('id', id).eq('business_id', bid).maybeSingle())?.data
         // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
-        throwSupaError(await supabase.from('tickets').update({
-          status: 'nula',
-          void_reason: reasonTrim,
-          void_by: voidBy || null,
-          void_at: new Date().toISOString(),
-          rev: Number(priorRow?.rev || 0) + 1,
-        }).eq('id', id).eq('business_id', bid))
+        // 2026-05-18 followup #3 — wrap in assertAffected. A silent 0-row response
+        // here would mean RLS denied the void but the cashier sees "voided" while
+        // the ticket stays paid — a critical fiscal silent-failure.
+        await assertAffected(
+          supabase.from('tickets').update({
+            status: 'nula',
+            void_reason: reasonTrim,
+            void_by: voidBy || null,
+            void_at: new Date().toISOString(),
+            rev: Number(priorRow?.rev || 0) + 1,
+          }).eq('id', id).eq('business_id', bid).select('id'),
+          'web.tickets.void'
+        )
         if (priorRow) {
           await logActivity({ event_type: 'ticket_voided', severity: 'critical',
             target_type: 'ticket', target_id: id, target_name: priorRow.doc_number || `#${id}`,
