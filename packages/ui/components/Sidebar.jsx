@@ -483,8 +483,31 @@ const BOTTOM_NAV_KEYS = ['pos', 'queue', 'clients', 'reports']
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+// Sidebar `to` values come in two flavors:
+//   - Short: '/queue', '/clients', '/reports' (matches a Navigate in
+//     web/main.jsx that redirects to '/pos/queue', etc.)
+//   - Full:  '/pos', '/admin', '/pos/foo'
+// The actual rendered pathname is always the full '/pos/X' form. To match
+// short forms, we compare against both pathname and pathname-minus-/pos.
+// Without this, item.to='/pos' matched every '/pos/*' route (POS tab stuck
+// red while user was on Cola, Clientes, Reportes, etc.).
+function isItemActive(itemTo, pathname) {
+  if (!itemTo) return false
+  if (pathname === itemTo) return true
+  // Special case: '/pos' should match ONLY the bare service grid, not
+  // every sub-route. The sub-routes have their own sidebar entries.
+  if (itemTo === '/pos') return false
+  if (pathname.startsWith(itemTo + '/')) return true
+  // Short form: compare 'queue' to '/pos/queue' via prefix strip.
+  if (pathname.startsWith('/pos/')) {
+    const stripped = pathname.slice(4) // '/pos/queue' → '/queue'
+    if (stripped === itemTo || stripped.startsWith(itemTo + '/')) return true
+  }
+  return false
+}
+
 function isChildActive(children, pathname) {
-  return children?.some(c => pathname === c.to || pathname.startsWith(c.to + '/'))
+  return children?.some(c => isItemActive(c.to, pathname))
 }
 
 // ── Desktop Nav Item ────────────────────────────────────────────────────────
@@ -494,7 +517,7 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
   const locked = item.feature && !hasFeature(item.feature)
   const active = isGroup
     ? isChildActive(item.children, pathname)
-    : pathname === item.to || pathname.startsWith(item.to + '/')
+    : isItemActive(item.to, pathname)
   const [open, setOpen] = useState(active)
 
   // Auto-open when a child route is active
@@ -576,7 +599,7 @@ function NavItem({ item, collapsed, lang, hasFeature, userRole, ecfQueue, lowSto
           <div className="ml-5 pl-3 border-l border-white/10 space-y-0.5 py-1">
             {visibleChildren.map(child => {
               const childLocked = child.feature && !hasFeature(child.feature)
-              const childActive = pathname === child.to || pathname.startsWith(child.to + '/')
+              const childActive = isItemActive(child.to, pathname)
               // The remote dashboard child carries the live "unread activity"
               // dot so owners can tell at a glance that there are new manager
               // overrides / voids / discrepancies since they last checked.
@@ -868,7 +891,7 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
                 )
               }
               const Icon = d.icon
-              const isActive = pathname === d.to || pathname.startsWith(d.to + '/')
+              const isActive = isItemActive(d.to, pathname)
               return (
                 <NavLink
                   key={d.to}
@@ -915,7 +938,7 @@ function MobileBottomNav({ visibleNav, ecfQueue, businessType }) {
       {/* Bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 h-16 bg-black border-t border-white/10 flex justify-around items-center z-50 md:hidden">
         {bottomItems.map(item => {
-          const isActive = pathname === item.to || pathname.startsWith(item.to + '/')
+          const isActive = isItemActive(item.to, pathname)
           return (
             <NavLink key={item.to} to={item.to} className="flex flex-col items-center justify-center flex-1 py-1">
               <item.icon size={20} strokeWidth={1.75} className={isActive ? 'text-[#b3001e]' : 'text-slate-400'} />
