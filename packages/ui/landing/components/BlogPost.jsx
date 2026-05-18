@@ -79,7 +79,7 @@ export default function BlogPost({ lang = 'es' }) {
   return (
     <article className="bg-white py-20 md:py-24 px-4 sm:px-6 lg:px-8 min-h-screen">
       <div className="max-w-5xl mx-auto">
-        <Link to={lang === 'en' ? '/en/blog' : '/blog'} className="inline-flex items-center gap-2 text-sm font-bold text-black/50 hover:text-[#b3001e] mb-8 transition-colors">
+        <Link to={lang === 'en' ? '/en/blog' : '/blog'} className="inline-flex items-center gap-2 text-sm font-bold text-black/60 hover:text-[#b3001e] mb-8 transition-colors">
           <ArrowLeft size={14} />{t.backToBlog}
         </Link>
 
@@ -90,7 +90,7 @@ export default function BlogPost({ lang = 'es' }) {
             ))}
           </div>
           <h1 className="text-3xl md:text-5xl font-black tracking-tight text-black leading-tight">{title}</h1>
-          <div className="mt-5 flex items-center gap-4 text-xs text-black/50">
+          <div className="mt-5 flex items-center gap-4 text-xs text-black/60">
             <span className="font-semibold">{post.author}</span>
             <span>·</span>
             <span>{post.date}</span>
@@ -104,7 +104,7 @@ export default function BlogPost({ lang = 'es' }) {
           {toc.length > 0 && (
             <aside className="lg:col-span-3 lg:order-2">
               <div className="sticky top-[140px]">
-                <p className="text-[10px] font-extrabold tracking-[3px] uppercase text-black/40 mb-3">{t.toc}</p>
+                <p className="text-[10px] font-extrabold tracking-[3px] uppercase text-black/60 mb-3">{t.toc}</p>
                 <ul className="space-y-2">
                   {toc.map(h => (
                     <li key={h.id}>
@@ -113,7 +113,7 @@ export default function BlogPost({ lang = 'es' }) {
                   ))}
                 </ul>
                 <div className="mt-6 pt-6 border-t border-black/10">
-                  <p className="text-[10px] font-extrabold tracking-[3px] uppercase text-black/40 mb-3">{t.share}</p>
+                  <p className="text-[10px] font-extrabold tracking-[3px] uppercase text-black/60 mb-3">{t.share}</p>
                   <div className="flex gap-2">
                     <a
                       href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`}
