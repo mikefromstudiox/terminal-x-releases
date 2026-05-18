@@ -22,34 +22,16 @@ if (!existsSync(DIST)) {
 console.log('[prepare-vercel] preparing', DIST)
 
 const mkdir = (p) => { if (!existsSync(p)) mkdirSync(p, { recursive: true }) }
-mkdir(join(DIST, 'api'))
-mkdir(join(DIST, 'api', 'signup'))
-mkdir(join(DIST, 'api', 'digest'))
 mkdir(join(DIST, 'lib'))
 mkdir(join(DIST, '.vercel'))
 
-// API functions — copy repo-root /api/ → dist-web/api/. Single source of truth.
-//
-// Stage 3 (FUTUREX §Tech debt) collapsed web/api/ → /api/. Per fc5878a's
-// finding (originally for panel.js, applies to all auto-detected functions),
-// Vercel auto-detects /api/* at REPO ROOT and ignores dist-web/api/* copies.
-// We keep the copy for the local manual deploy chain and as a backstop in
-// case the precedence rule changes — but the source must be /api/ now,
-// not web/api/, since web/api/ was deleted in Stage 3.
-//
-// panel.js stays excluded from the copy because Vercel's auto-detected
-// repo-root /api/panel.js is the production-live one; the copy would be
-// silently ignored at runtime and only create cosmetic confusion.
-const apiFiles = [
-  'validate.js', 'rnc.js', 'ecf-sign.js',
-  'dgii-cert-upload.js', 'staff-verify-auth.js', 'fe.js',
-]
-for (const f of apiFiles) copyFileSync(join(ROOT, 'api', f), join(DIST, 'api', f))
-
-// Sub-directory functions
-copyFileSync(join(ROOT, 'api/signup/provision.js'), join(DIST, 'api/signup/provision.js'))
-copyFileSync(join(ROOT, 'api/signup/lead.js'),     join(DIST, 'api/signup/lead.js'))
-copyFileSync(join(ROOT, 'api/digest/daily.js'),    join(DIST, 'api/digest/daily.js'))
+// API functions — NOT copied. Per fc5878a + Stage 4 (FUTUREX §Tech debt),
+// Vercel auto-detects /api/* at REPO ROOT and silently ignores any
+// dist-web/api/* copies. The copy was dead weight: prepare-vercel.mjs
+// produced files Vercel never read. Removed 2026-05-18 after the
+// precedence rule was verified for all 9 functions via the Stage 1-3
+// preview smoke tests + 19:00 cron tick on Stage 3.
+// Edit /api/*.js at REPO ROOT — that's the only canonical source.
 
 // LIB — copy repo-root /lib/ → dist-web/lib/. Single source of truth.
 //
@@ -103,4 +85,4 @@ writeFileSync(join(DIST, '.vercel/project.json'), JSON.stringify({
 }))
 
 console.log('[prepare-vercel] done. dist-web/ is deploy-ready.')
-console.log('[prepare-vercel] api functions:', apiFiles.length + 3, 'lib files:', readdirSync(join(DIST, 'lib')).length)
+console.log('[prepare-vercel] lib files:', readdirSync(join(DIST, 'lib')).length, '(api/* served from repo-root /api/, not copied)')
