@@ -79,6 +79,8 @@
     { "path": "/api/panel?action=cron_dgii_pull", "schedule": "0 7 * * *" },
     { "path": "/api/panel?action=anecf-drain", "schedule": "0 */6 * * *" },
     { "path": "/api/panel?action=cron_deploy_smoke", "schedule": "*/15 * * * *" },
-    { "path": "/api/panel?action=cron_health_verifier", "schedule": "*/30 * * * *" }
+    { "path": "/api/panel?action=cron_health_verifier", "schedule": "*/30 * * * *" },
+    { "path": "/api/panel?action=cron_flow_drift_smoke", "schedule": "*/15 * * * *" },
+    { "path": "/api/panel?action=cron_claude_triage", "schedule": "*/2 * * * *" }
   ]
 }

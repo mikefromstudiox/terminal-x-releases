@@ -79,6 +79,14 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   // 200-but-no-output failures that Layer 1 (HTTP) and Layer 2 (throws) miss.
   const [cronHealth, setCronHealth] = useState([])
   const [cronHealthExpanded, setCronHealthExpanded] = useState(false)
+  // Layer 4 — Flow Drift (end-to-end user-action assertions). Catches the
+  // queue.ticket_id NULL → markPaid silent-skip class of bug that Layers 1/2/3
+  // cannot see. Cron at /api/panel?action=cron_flow_drift_smoke every 15 min.
+  const [flowDrift, setFlowDrift] = useState([])
+  const [flowDriftExpanded, setFlowDriftExpanded] = useState(false)
+  // Layer 5 — Claude Triage. Anthropic-powered RCA on every critical incident.
+  const [triage, setTriage] = useState({ data: [], stats: null })
+  const [triageExpanded, setTriageExpanded] = useState(false)
   const [showResolvedErrors, setShowResolvedErrors] = useState(false)
   const [catFilter, setCatFilter] = useState(null) // null | category string
   const [tierFilter, setTierFilter] = useState(null)   // null | 'gold' | 'silver' | 'bronze'
@@ -120,7 +128,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       let token = await refreshToken()
       if (!token) token = getToken()
       const headers = { 'Authorization': `Bearer ${token}` }
-      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp, cronHealthResp] = await Promise.all([
+      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp, cronHealthResp, triageResp] = await Promise.all([
         fetch('/api/panel?action=stats', { headers }),
         fetch('/api/panel?action=activity_feed', { headers }),
         fetch('/api/panel?action=loyalty-overview', { headers }),
@@ -128,6 +136,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
         fetch('/api/panel?action=errors_list&unresolved=1&limit=50', { headers }),
         fetch('/api/panel?action=deploy_smoke_history&limit=20', { headers }),
         fetch('/api/panel?action=cron_health_history&limit=20', { headers }),
+        fetch('/api/panel?action=claude_triage_history&limit=20', { headers }),
       ])
       if (statsResp.ok) setStats(await statsResp.json())
       if (feedResp.ok) { const f = await feedResp.json(); setFeed(f.data || []) }
@@ -136,6 +145,10 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       if (errResp.ok) setRecentErrors(((await errResp.json()).data) || [])
       if (smokeResp.ok) setSmokeHistory(((await smokeResp.json()).data) || [])
       if (cronHealthResp.ok) setCronHealth(((await cronHealthResp.json()).data) || [])
+      if (triageResp.ok) {
+        const j = await triageResp.json()
+        setTriage({ data: j.data || [], stats: j.stats || null })
+      }
     } catch (e) {
       try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dashboard.tick' }) } catch {} console.error('Dashboard load:', e) }
     setLoading(false)
@@ -524,6 +537,93 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
         )}
       </motion.div>
 
+      {/* Claude Triage — Layer 5 RCA. Brief summary card; click to expand history. */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.24, duration: 0.4 }}
+        className={`rounded-2xl p-6 transition-colors ${cardBase}`}
+      >
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <p className={`text-[15px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+            <span className="inline-block w-2 h-2 rounded-full bg-[#b3001e] mr-2" />
+            {L('Triage Claude', 'Claude Triage')}
+            {triage.stats?.diagnosed_last_24h > 0 && (
+              <span className="ml-2 text-[11px] font-bold text-[#b3001e] bg-[#b3001e]/10 border border-[#b3001e]/30 rounded-full px-2 py-0.5">
+                {triage.stats.diagnosed_last_24h} {L('en 24h', 'in 24h')}
+              </span>
+            )}
+          </p>
+          <div className="flex items-center gap-2">
+            {triage.stats && !triage.stats.anthropic_configured && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                {L('ANTHROPIC_API_KEY no configurado', 'ANTHROPIC_API_KEY missing')}
+              </span>
+            )}
+            {triage.stats && !triage.stats.whatsapp_configured && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                {L('WhatsApp no configurado', 'WhatsApp not configured')}
+              </span>
+            )}
+            <button
+              onClick={() => setTriageExpanded(s => !s)}
+              className={`text-[11px] font-bold px-3 py-1 rounded-full transition-colors ${isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-black/50 hover:text-black hover:bg-black/5'}`}
+            >
+              {triageExpanded ? L('Ocultar', 'Hide') : L('Ver historial', 'View history')}
+            </button>
+          </div>
+        </div>
+
+        {triage.stats?.most_recent ? (
+          <div className={`p-3 rounded-lg ${isDark ? 'bg-white/[0.03]' : 'bg-black/[0.02]'}`}>
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-white/40' : 'text-black/40'}`}>{L('Más reciente', 'Most recent')}</span>
+              <span className={`text-[10px] font-mono ${isDark ? 'text-white/40' : 'text-black/40'}`}>{timeAgo(triage.stats.most_recent.when, lang)}</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#b3001e]/10 text-[#b3001e] border border-[#b3001e]/25">{triage.stats.most_recent.kind}</span>
+              {triage.stats.most_recent.diagnosis?.confidence && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  triage.stats.most_recent.diagnosis.confidence === 'high' ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+                  : triage.stats.most_recent.diagnosis.confidence === 'medium' ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
+                  : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/30'
+                }`}>
+                  {L('confianza', 'confidence')}: {triage.stats.most_recent.diagnosis.confidence}
+                </span>
+              )}
+            </div>
+            <p className={`text-[12px] font-semibold ${isDark ? 'text-white' : 'text-black'}`}>{triage.stats.most_recent.diagnosis?.likely_cause || L('(sin causa identificada)', '(no cause identified)')}</p>
+            {triage.stats.most_recent.diagnosis?.next_step && (
+              <p className={`text-[11px] mt-1 ${isDark ? 'text-white/60' : 'text-black/60'}`}>→ {triage.stats.most_recent.diagnosis.next_step}</p>
+            )}
+          </div>
+        ) : (
+          <p className={`text-[12px] ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+            {L('Sin incidentes diagnosticados en los últimos 7 días.', 'No diagnosed incidents in the last 7 days.')}
+          </p>
+        )}
+
+        {triageExpanded && triage.data.length > 0 && (
+          <div className="mt-4 space-y-2 max-h-[420px] overflow-y-auto">
+            {triage.data.map(ev => (
+              <div key={`${ev.kind}_${ev.id}`} className={`p-3 rounded-lg ${isDark ? 'bg-white/[0.03]' : 'bg-black/[0.02]'}`}>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#b3001e]/10 text-[#b3001e] border border-[#b3001e]/25">{ev.kind}</span>
+                  <span className={`text-[10px] font-mono ${isDark ? 'text-white/40' : 'text-black/40'}`}>{timeAgo(ev.when, lang)}</span>
+                  {ev.diagnosis?.confidence && <span className={`text-[10px] font-bold ${isDark ? 'text-white/60' : 'text-black/60'}`}>· {ev.diagnosis.confidence}</span>}
+                  {ev.business && <span className={`text-[10px] ${isDark ? 'text-white/50' : 'text-black/50'}`}>· {ev.business}</span>}
+                </div>
+                <p className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>{ev.title}</p>
+                {ev.diagnosis?.likely_cause && <p className={`text-[11px] ${isDark ? 'text-white/70' : 'text-black/70'}`}>{L('Causa', 'Cause')}: {ev.diagnosis.likely_cause}</p>}
+                {ev.diagnosis?.next_step && <p className={`text-[11px] ${isDark ? 'text-white/60' : 'text-black/60'}`}>{L('Siguiente', 'Next')}: {ev.diagnosis.next_step}</p>}
+                {ev.diagnosis?.user_impact && <p className={`text-[11px] ${isDark ? 'text-white/50' : 'text-black/50'}`}>{L('Impacto', 'Impact')}: {ev.diagnosis.user_impact}</p>}
+                {Array.isArray(ev.diagnosis?.suspected_files) && ev.diagnosis.suspected_files.length > 0 && (
+                  <p className={`text-[10px] font-mono mt-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>{ev.diagnosis.suspected_files.join(' · ')}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
       {/* Recent client errors — full-width, copy-paste-ready format */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
@@ -667,6 +767,23 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                               : `${f.name || '?'} at ${(f.url || '').split('/').pop()}:${f.line}:${f.col}`
                           ).join('\n')}
                         </pre>
+                      )}
+                      {meta.claude_diagnosis && (
+                        <div className={`text-[10px] mt-1.5 p-2 rounded border ${isDark ? 'bg-[#b3001e]/5 border-[#b3001e]/20 text-white/80' : 'bg-[#b3001e]/5 border-[#b3001e]/20 text-black/80'}`}>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="font-bold text-[#b3001e] uppercase tracking-wider">{L('Triage Claude', 'Claude triage')}</span>
+                            {meta.claude_diagnosis.confidence && (
+                              <span className={`font-bold px-1.5 py-0 rounded-full text-[9px] ${
+                                meta.claude_diagnosis.confidence === 'high' ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+                                : meta.claude_diagnosis.confidence === 'medium' ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
+                                : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/30'
+                              }`}>{meta.claude_diagnosis.confidence}</span>
+                            )}
+                          </div>
+                          {meta.claude_diagnosis.likely_cause && <p><span className="font-bold">{L('Causa', 'Cause')}:</span> {meta.claude_diagnosis.likely_cause}</p>}
+                          {meta.claude_diagnosis.next_step && <p><span className="font-bold">{L('Siguiente', 'Next')}:</span> {meta.claude_diagnosis.next_step}</p>}
+                          {meta.claude_diagnosis.user_impact && <p><span className="font-bold">{L('Impacto', 'Impact')}:</span> {meta.claude_diagnosis.user_impact}</p>}
+                        </div>
                       )}
                       {e.resolution && (
                         <p className={`text-[10px] mt-1 italic ${isDark ? 'text-emerald-300/80' : 'text-emerald-700'}`}>
