@@ -172,6 +172,11 @@ async function handler(req, res) {
   if (action === 'cron_flow_drift_smoke')       return handleCronFlowDriftSmoke(req, res)
   if (action === 'flow_drift_history')          return handleFlowDriftHistory(req, res)
 
+  // ── Layer 5 Claude Triage — every 2 min, calls Anthropic for structured
+  // root-cause diagnosis on any new critical incident across layers 1-4.
+  if (action === 'cron_claude_triage')          return handleCronClaudeTriage(req, res)
+  if (action === 'claude_triage_history')       return handleClaudeTriageHistory(req, res)
+
   // ── v2.16.7 — Lending collections reminders (24h + 2h windows) ──────────
   // Hourly cron tick + license-JWT mark/list paths. WABA is NOT live —
   // wa.me deep links only. UI must reflect "pendiente" until WABA approved.
@@ -5175,6 +5180,365 @@ async function handleFlowDriftHistory(req, res) {
     return res.json({ data: data || [] })
   } catch (err) {
     reportServerError(err, { route: '/api/panel', action: 'flow_drift_history' }).catch(() => {})
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Layer 5 — Claude Triage. Every 2 min, picks up critical incidents from
+// layers 1-4 and asks Claude Haiku 4.5 for a structured RCA. Diagnoses are
+// written back to the source row (client_errors.metadata.claude_diagnosis or
+// the table's claude_diagnosis JSONB column). claude_diagnosed_at marker is
+// used on smoke/cron/flow runs to avoid re-diagnosing. For severity=critical
+// client_errors we also fire a WhatsApp alert to Mike via UltraMsg (env-gated:
+// TX_ALERT_ULTRAMSG_INSTANCE + TX_ALERT_ULTRAMSG_TOKEN + TX_ALERT_WHATSAPP_TO).
+//
+// Cost ballpark: Haiku 4.5 ~$0.002/triage * <=10/run * 30 runs/h * 24h ~ $14/day worst case.
+// Disable: set ANTHROPIC_API_KEY to empty string, or remove the cron from vercel.json.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _TRIAGE_MAX_EVENTS_PER_RUN = 5
+const _TRIAGE_LOOKBACK_MIN = 15
+
+async function _triageGetRecentGit() {
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA || 'unknown'
+  const ref = process.env.VERCEL_GIT_COMMIT_REF || 'unknown'
+  const msg = process.env.VERCEL_GIT_COMMIT_MESSAGE || '(no commit message available in runtime env)'
+  return `current deploy: ${sha.slice(0, 7)} on ${ref} — ${msg.slice(0, 200)}`
+}
+
+async function _triageCallClaude(prompt) {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    return { skipped: true, reason: 'ANTHROPIC_API_KEY unset — add it in Vercel env to enable diagnosis' }
+  }
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        temperature: 0,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    })
+    if (!r.ok) {
+      const errText = await r.text().catch(() => '')
+      return { error: true, status: r.status, raw: errText.slice(0, 1000) }
+    }
+    const json = await r.json()
+    const text = json?.content?.[0]?.text || ''
+    const m = text.match(/\{[\s\S]*\}/)
+    if (!m) return { raw_text: text, parse_failed: true }
+    try {
+      const parsed = JSON.parse(m[0])
+      return { ...parsed, _model: json.model, _usage: json.usage }
+    } catch (e) {
+      return { raw_text: text, parse_failed: true, parse_error: String(e.message || e) }
+    }
+  } catch (e) {
+    return { error: true, transport: String(e.message || e) }
+  }
+}
+
+function _triageBuildPrompt({ kind, row, gitContext, smokeContext, cronContext, flowContext }) {
+  const lines = []
+  lines.push('You are debugging a production incident on Terminal X (POS for Dominican Republic).')
+  lines.push('Stack: React 19 + Vite 5 + Tailwind 4 (web PWA); Electron 41 + better-sqlite3 (desktop);')
+  lines.push('Supabase Postgres + Vercel serverless; DGII e-CF certified emisor.')
+  lines.push('')
+  lines.push(`EVENT KIND: ${kind}`)
+  if (kind === 'client_error') {
+    lines.push(`- severity: ${row.severity}`)
+    lines.push(`- category: ${row.metadata?.category || 'unknown'}`)
+    lines.push(`- message: ${(row.message || '').slice(0, 2000)}`)
+    lines.push(`- stack: ${(row.stack || '').slice(0, 4096)}`)
+    lines.push(`- route: ${row.route || 'unknown'}`)
+    lines.push(`- user_agent: ${(row.user_agent || '').slice(0, 200)}`)
+    lines.push(`- business_id: ${row.business_id || 'null (pre-auth or system)'}`)
+    lines.push(`- created_at: ${row.created_at}`)
+    lines.push(`- app_version: ${row.app_version || 'unknown'}`)
+  } else if (kind === 'smoke_fail') {
+    lines.push(`- ran_at: ${row.ran_at}`)
+    lines.push(`- source: ${row.source}`)
+    lines.push(`- passed/failed/total: ${row.passed_count}/${row.failed_count}/${row.total_count}`)
+    lines.push(`- failures: ${JSON.stringify(row.failures || []).slice(0, 4096)}`)
+  } else if (kind === 'cron_health_fail') {
+    lines.push(`- ran_at: ${row.ran_at}`)
+    lines.push(`- passed/failed/total: ${row.passed_count}/${row.failed_count}/${row.total_checks}`)
+    lines.push(`- failures: ${JSON.stringify(row.failures || []).slice(0, 4096)}`)
+  } else if (kind === 'flow_drift_fail') {
+    lines.push(`- ran_at: ${row.ran_at}`)
+    lines.push(`- passed/failed/total: ${row.passed_count}/${row.failed_count}/${row.total_count}`)
+    lines.push(`- failures: ${JSON.stringify(row.failures || []).slice(0, 4096)}`)
+  }
+  lines.push('')
+  lines.push('CURRENT DEPLOY CONTEXT:')
+  lines.push(gitContext)
+  lines.push('')
+  if (smokeContext) { lines.push('LAST 5 SMOKE RUNS:'); lines.push(smokeContext); lines.push('') }
+  if (cronContext)  { lines.push('LAST 3 CRON HEALTH RUNS:'); lines.push(cronContext); lines.push('') }
+  if (flowContext)  { lines.push('LAST 3 FLOW DRIFT RUNS:'); lines.push(flowContext); lines.push('') }
+  lines.push('Respond with a SINGLE JSON object, no other text, no markdown fences. Schema:')
+  lines.push('{')
+  lines.push('  "likely_cause": "<one sentence>",')
+  lines.push('  "confidence": "<low|medium|high>",')
+  lines.push('  "suspected_commit": "<sha or \'none\'>",')
+  lines.push('  "suspected_files": ["<path1>", "<path2>"],')
+  lines.push('  "next_step": "<one actionable sentence — what to grep, fetch, or test>",')
+  lines.push('  "user_impact": "<one sentence — who is affected and what they cannot do>"')
+  lines.push('}')
+  return lines.join('\n')
+}
+
+async function _triageSendCriticalWhatsapp(diagnosis, row) {
+  const instance = process.env.TX_ALERT_ULTRAMSG_INSTANCE
+  const token = process.env.TX_ALERT_ULTRAMSG_TOKEN
+  const to = process.env.TX_ALERT_WHATSAPP_TO || '+18098282971'
+  if (!instance || !token) {
+    return { skipped: true, reason: 'TX_ALERT_ULTRAMSG_INSTANCE/TOKEN unset' }
+  }
+  const body = [
+    '🚨 Terminal X critical error',
+    `Cause: ${diagnosis.likely_cause || '(no diagnosis)'}`,
+    `Confidence: ${diagnosis.confidence || 'unknown'}`,
+    `Suspected: ${diagnosis.suspected_commit || 'none'} ${Array.isArray(diagnosis.suspected_files) ? diagnosis.suspected_files[0] || '' : ''}`.trim(),
+    `Next: ${diagnosis.next_step || '(no next step)'}`,
+    `Impact: ${diagnosis.user_impact || '(unknown)'}`,
+    `Time: ${row.created_at || row.ran_at || new Date().toISOString()}`,
+  ].join('\n')
+  try {
+    const r = await fetch(`https://api.ultramsg.com/${encodeURIComponent(instance)}/messages/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `token=${encodeURIComponent(token)}&to=${encodeURIComponent(to)}&body=${encodeURIComponent(body)}`,
+    })
+    if (!r.ok) return { sent: false, status: r.status, raw: (await r.text().catch(() => '')).slice(0, 500) }
+    return { sent: true, status: r.status }
+  } catch (e) {
+    return { sent: false, error: String(e.message || e) }
+  }
+}
+
+async function handleCronClaudeTriage(req, res) {
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  const t0 = Date.now()
+  const ran_at = new Date().toISOString()
+  const summary = { ran_at, triaged: 0, skipped: 0, whatsapp_sent: 0, whatsapp_skipped: 0, errors: [] }
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } })
+
+    const sinceIso = new Date(Date.now() - _TRIAGE_LOOKBACK_MIN * 60_000).toISOString()
+    const [smokeCtxRes, cronCtxRes, flowCtxRes] = await Promise.all([
+      sb.from('deploy_smoke_results').select('ran_at, source, passed_count, failed_count, total_count').order('ran_at', { ascending: false }).limit(5),
+      sb.from('cron_health_runs').select('ran_at, passed_count, failed_count, total_checks, failures').order('ran_at', { ascending: false }).limit(3),
+      sb.from('flow_drift_runs').select('ran_at, passed_count, failed_count, total_count, failures').order('ran_at', { ascending: false }).limit(3),
+    ])
+    const gitContext = await _triageGetRecentGit()
+    const smokeContext = (smokeCtxRes.data || []).map(r => `  ${r.ran_at} [${r.source}] ${r.passed_count}/${r.total_count} pass`).join('\n')
+    const cronContext = (cronCtxRes.data || []).map(r => `  ${r.ran_at} ${r.passed_count}/${r.total_checks} pass — fails: ${JSON.stringify(r.failures || []).slice(0, 300)}`).join('\n')
+    const flowContext = (flowCtxRes.data || []).map(r => `  ${r.ran_at} ${r.passed_count}/${r.total_count} pass — fails: ${JSON.stringify(r.failures || []).slice(0, 300)}`).join('\n')
+
+    const queue = []
+
+    const { data: critErrs } = await sb.from('client_errors')
+      .select('id, severity, message, stack, route, user_agent, business_id, created_at, app_version, metadata')
+      .eq('severity', 'critical')
+      .gt('created_at', sinceIso)
+      .order('created_at', { ascending: true })
+      .limit(_TRIAGE_MAX_EVENTS_PER_RUN)
+    for (const row of critErrs || []) {
+      if (row.metadata && row.metadata.claude_diagnosis) continue
+      queue.push({
+        kind: 'client_error',
+        row,
+        async applyDiagnosis(diagnosis) {
+          const newMeta = { ...(row.metadata || {}), claude_diagnosis: { ...diagnosis, _diagnosed_at: new Date().toISOString() } }
+          await sb.from('client_errors').update({ metadata: newMeta }).eq('id', row.id)
+          const wa = await _triageSendCriticalWhatsapp(diagnosis, row)
+          if (wa.sent) summary.whatsapp_sent++
+          else summary.whatsapp_skipped++
+          if (!wa.sent && wa.reason) {
+            await sb.from('client_errors').insert({
+              business_id: null, message: `whatsapp_critical_alert_skipped — ${wa.reason}`,
+              route: '/__claude_triage', severity: 'warning',
+              metadata: { category: 'claude.triage.whatsapp_skipped', source_error_id: row.id, wa },
+            }).then(() => {}, () => {})
+          }
+        },
+      })
+    }
+
+    const { data: smokeFails } = await sb.from('deploy_smoke_results')
+      .select('id, ran_at, source, passed_count, failed_count, total_count, failures')
+      .is('claude_diagnosed_at', null)
+      .gt('failed_count', 0)
+      .gt('ran_at', sinceIso)
+      .order('ran_at', { ascending: true })
+      .limit(_TRIAGE_MAX_EVENTS_PER_RUN)
+    for (const row of smokeFails || []) {
+      queue.push({
+        kind: 'smoke_fail',
+        row,
+        async applyDiagnosis(diagnosis) {
+          await sb.from('deploy_smoke_results').update({
+            claude_diagnosed_at: new Date().toISOString(),
+            claude_diagnosis: diagnosis,
+          }).eq('id', row.id)
+        },
+      })
+    }
+
+    const { data: cronFails } = await sb.from('cron_health_runs')
+      .select('id, ran_at, passed_count, failed_count, total_checks, failures')
+      .is('claude_diagnosed_at', null)
+      .gt('failed_count', 0)
+      .gt('ran_at', sinceIso)
+      .order('ran_at', { ascending: true })
+      .limit(_TRIAGE_MAX_EVENTS_PER_RUN)
+    for (const row of cronFails || []) {
+      queue.push({
+        kind: 'cron_health_fail',
+        row,
+        async applyDiagnosis(diagnosis) {
+          await sb.from('cron_health_runs').update({
+            claude_diagnosed_at: new Date().toISOString(),
+            claude_diagnosis: diagnosis,
+          }).eq('id', row.id)
+        },
+      })
+    }
+
+    const { data: flowFails } = await sb.from('flow_drift_runs')
+      .select('id, ran_at, passed_count, failed_count, total_count, failures')
+      .is('claude_diagnosed_at', null)
+      .gt('failed_count', 0)
+      .gt('ran_at', sinceIso)
+      .order('ran_at', { ascending: true })
+      .limit(_TRIAGE_MAX_EVENTS_PER_RUN)
+    for (const row of flowFails || []) {
+      queue.push({
+        kind: 'flow_drift_fail',
+        row,
+        async applyDiagnosis(diagnosis) {
+          await sb.from('flow_drift_runs').update({
+            claude_diagnosed_at: new Date().toISOString(),
+            claude_diagnosis: diagnosis,
+          }).eq('id', row.id)
+        },
+      })
+    }
+
+    const totalCap = _TRIAGE_MAX_EVENTS_PER_RUN * 2
+    const work = queue.slice(0, totalCap)
+    summary.candidates = queue.length
+    summary.processed = work.length
+
+    for (const item of work) {
+      try {
+        const prompt = _triageBuildPrompt({
+          kind: item.kind, row: item.row, gitContext, smokeContext, cronContext, flowContext,
+        })
+        const diagnosis = await _triageCallClaude(prompt)
+        if (diagnosis && diagnosis.skipped) { summary.skipped++; summary.errors.push({ kind: item.kind, reason: diagnosis.reason }); continue }
+        await item.applyDiagnosis(diagnosis)
+        summary.triaged++
+      } catch (e) {
+        summary.errors.push({ kind: item.kind, error: String(e.message || e) })
+      }
+    }
+
+    summary.duration_ms = Date.now() - t0
+    return res.json({ ok: true, ...summary })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_claude_triage' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'triage_failed', ...summary })
+  }
+}
+
+async function handleClaudeTriageHistory(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100)
+    const since = new Date(Date.now() - 7 * 24 * 3600_000).toISOString()
+    const [errs, smokes, crons, flows] = await Promise.all([
+      auth.supabase.from('client_errors')
+        .select('id, created_at, severity, message, route, metadata, business_id, businesses(name)')
+        .eq('severity', 'critical')
+        .not('metadata->claude_diagnosis', 'is', null)
+        .gt('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(limit),
+      auth.supabase.from('deploy_smoke_results')
+        .select('id, ran_at, source, failed_count, total_count, claude_diagnosis, claude_diagnosed_at')
+        .not('claude_diagnosed_at', 'is', null)
+        .gt('ran_at', since)
+        .order('claude_diagnosed_at', { ascending: false })
+        .limit(limit),
+      auth.supabase.from('cron_health_runs')
+        .select('id, ran_at, failed_count, total_checks, claude_diagnosis, claude_diagnosed_at')
+        .not('claude_diagnosed_at', 'is', null)
+        .gt('ran_at', since)
+        .order('claude_diagnosed_at', { ascending: false })
+        .limit(limit),
+      auth.supabase.from('flow_drift_runs')
+        .select('id, ran_at, failed_count, total_count, claude_diagnosis, claude_diagnosed_at')
+        .not('claude_diagnosed_at', 'is', null)
+        .gt('ran_at', since)
+        .order('claude_diagnosed_at', { ascending: false })
+        .limit(limit),
+    ])
+
+    const events = []
+    for (const r of errs.data || []) events.push({
+      kind: 'client_error', id: r.id, when: r.created_at, route: r.route,
+      title: (r.message || '').slice(0, 180), business: r.businesses?.name || null,
+      diagnosis: r.metadata?.claude_diagnosis || null,
+    })
+    for (const r of smokes.data || []) events.push({
+      kind: 'smoke_fail', id: r.id, when: r.ran_at, route: 'cron_deploy_smoke',
+      title: `${r.failed_count}/${r.total_count} smoke checks failed (${r.source})`,
+      diagnosis: r.claude_diagnosis || null,
+    })
+    for (const r of crons.data || []) events.push({
+      kind: 'cron_health_fail', id: r.id, when: r.ran_at, route: 'cron_health_verifier',
+      title: `${r.failed_count}/${r.total_checks} cron health checks failed`,
+      diagnosis: r.claude_diagnosis || null,
+    })
+    for (const r of flows.data || []) events.push({
+      kind: 'flow_drift_fail', id: r.id, when: r.ran_at, route: 'flow_drift',
+      title: `${r.failed_count}/${r.total_count} flow drift checks failed`,
+      diagnosis: r.claude_diagnosis || null,
+    })
+
+    events.sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime())
+    const last24 = events.filter(e => Date.now() - new Date(e.when).getTime() <= 24 * 3600_000).length
+
+    return res.json({
+      data: events.slice(0, limit),
+      stats: {
+        diagnosed_last_24h: last24,
+        most_recent: events[0] || null,
+        anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
+        whatsapp_configured: !!(process.env.TX_ALERT_ULTRAMSG_INSTANCE && process.env.TX_ALERT_ULTRAMSG_TOKEN),
+      },
+    })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'claude_triage_history' }).catch(() => {})
     return res.status(500).json({ error: err.message })
   }
 }
