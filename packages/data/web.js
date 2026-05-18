@@ -357,7 +357,27 @@ function bcryptComparePinWeb(pin, salt, hash) {
 // freshly-created web user is immediately bcrypt-protected — no rehash-on-
 // login round-trip required for new rows. Reads on legacy rows still go
 // through the authByPin fallback.
+// 2026-05-18 Fix C — weak-PIN guard at the source. Any web staff create/update
+// that goes through users.create/users.update routes here, so '0000' / '1234' /
+// 'aaaa' / sequential / repeated patterns are rejected before bcrypt runs.
+// Throws (caught by tryWrite → reported to admin Errores).
+function assertStrongPin(pin) {
+  const s = String(pin || '')
+  if (!/^\d{4,6}$/.test(s)) throw new Error('PIN debe ser de 4 a 6 dígitos')
+  if (/^(\d)\1+$/.test(s)) throw new Error('PIN no puede ser dígitos repetidos (ej. 0000, 1111)')
+  const banned = new Set(['1234','12345','123456','4321','54321','654321','0000','1111','2222','3333','4444','5555','6666','7777','8888','9999'])
+  if (banned.has(s)) throw new Error('PIN demasiado común — escoja otro')
+  // Sequential ascending/descending (1234, 2345, ... 9876, 8765, ...)
+  let ascending = true, descending = true
+  for (let i = 1; i < s.length; i++) {
+    if (s.charCodeAt(i) !== s.charCodeAt(i-1) + 1) ascending = false
+    if (s.charCodeAt(i) !== s.charCodeAt(i-1) - 1) descending = false
+  }
+  if (ascending || descending) throw new Error('PIN secuencial no permitido')
+}
+
 async function hashPin(pin) {
+  assertStrongPin(pin)
   const salt = generatePinSaltWeb()
   return {
     pin_hash: bcryptHashPinWeb(pin, salt),
