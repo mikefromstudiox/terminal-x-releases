@@ -848,7 +848,7 @@ export default function LandingPage({ section, forceLang }) {
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
               {L(<>Cumple la Ley 32-23 <span className="text-[#b3001e]">sin necesitar un POS</span></>, <>Meet Law 32-23 <span className="text-[#b3001e]">without needing a POS</span></>)}
             </h2>
-            <p className="mt-4 text-lg text-black/50 max-w-2xl mx-auto">
+            <p className="mt-4 text-lg text-black/60 max-w-2xl mx-auto">
               {L('Si solo necesitas emitir comprobantes electronicos, este plan es para ti. Facturacion e-CF directa a DGII desde tu navegador, sin instalar nada.', 'If you only need to issue electronic invoices, this plan is for you. Direct e-CF invoicing to DGII from your browser, no installation needed.')}
             </p>
           </div>
@@ -862,8 +862,8 @@ export default function LandingPage({ section, forceLang }) {
                 )}
                 <div className="text-center mb-5">
                   <h3 className="text-lg font-bold text-black">{fp.name}</h3>
-                  <p className="text-xs text-black/50 mt-1 font-medium">{fp.desc}</p>
-                  <p className="text-3xl font-extrabold text-black mt-3">{fp.price}<span className="text-sm font-normal text-black/50">{fp.sub}</span></p>
+                  <p className="text-xs text-black/60 mt-1 font-medium">{fp.desc}</p>
+                  <p className="text-3xl font-extrabold text-black mt-3">{fp.price}<span className="text-sm font-normal text-black/60">{fp.sub}</span></p>
                   {fp.annual && <p className="text-[11px] text-black/60 mt-1">{fp.annual}</p>}
                   {fp.endpoint && <p className="text-[11px] text-black/60 font-medium mt-1">{fp.endpoint}</p>}
                   {fp.overage && <p className="text-[11px] text-[#b3001e] font-medium mt-1">{fp.overage}</p>}
@@ -976,8 +976,8 @@ export default function LandingPage({ section, forceLang }) {
                     )}
                   </p>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[12px]">
-                    <span className="text-[#b3001e] font-bold">RD$1,990<span className="text-white/40 font-normal">/{L('mes', 'mo')}</span></span>
-                    <span className="text-white/40">{L('o el cliente paga UltraMsg directo (~US$39/mes)', 'or the client pays UltraMsg directly (~US$39/mo)')}</span>
+                    <span className="text-[#b3001e] font-bold">RD$1,990<span className="text-white/60 font-normal">/{L('mes', 'mo')}</span></span>
+                    <span className="text-white/60">{L('o el cliente paga UltraMsg directo (~US$39/mes)', 'or the client pays UltraMsg directly (~US$39/mo)')}</span>
                   </div>
                 </div>
               </div>
@@ -1135,7 +1135,7 @@ export default function LandingPage({ section, forceLang }) {
             <h2 className="mt-3 text-4xl sm:text-5xl font-extrabold text-black">
               {L('Servicio de Certificacion e-CF', 'e-CF Certification Service')}
             </h2>
-            <p className="mt-4 text-lg text-black/50 max-w-2xl mx-auto">
+            <p className="mt-4 text-lg text-black/60 max-w-2xl mx-auto">
               {L('Nos encargamos de todo el proceso de certificacion ante DGII. Tu solo firmas — nosotros hacemos el resto.', 'We handle the entire DGII certification process. You just sign — we do the rest.')}
             </p>
           </div>
