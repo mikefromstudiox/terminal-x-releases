@@ -3253,6 +3253,12 @@ export function createWebAPI(supabase, businessId) {
 
       void: (data) => tryWrite(async () => {
         const { id, reason, voidBy } = typeof data === 'object' ? data : { id: data }
+        // 2026-05-18 Fix V — void MUST have a non-empty reason (theft surface:
+        // cashier voids paid ticket to pocket cash; auditor needs the reason).
+        const reasonTrim = String(reason || '').trim()
+        if (reasonTrim.length < 3) {
+          throw new Error('Razón requerida para anular (mínimo 3 caracteres)')
+        }
         // v2.16.31 — also pull ecf_result so the NCF-decrement-on-void path
         // can fall back when the top-level `ncf` column is null. Legacy
         // tickets store the assigned NCF inside ecf_result.eNCF (set by
@@ -3262,7 +3268,7 @@ export function createWebAPI(supabase, businessId) {
         // v2.10.3 — bump rev so Supabase trg_tickets_rev_guard accepts the status change.
         throwSupaError(await supabase.from('tickets').update({
           status: 'nula',
-          void_reason: reason || '',
+          void_reason: reasonTrim,
           void_by: voidBy || null,
           void_at: new Date().toISOString(),
           rev: Number(priorRow?.rev || 0) + 1,

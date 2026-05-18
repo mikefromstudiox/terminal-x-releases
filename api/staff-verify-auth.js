@@ -94,7 +94,41 @@ async function handler(req, res) {
     .maybeSingle()
 
   if (merr) return res.status(500).json({ error: merr.message })
-  if (!match) return res.status(200).json({ match: null })
+  if (!match) {
+    // 2026-05-18 Fix U — log every failed manager-card scan attempt so admin
+    // can see attackers scanning random tokens. Severity=warn (critical only
+    // after N failures in a window — left to a future cron analytic).
+    try {
+      await admin.from('activity_log').insert({
+        supabase_id: crypto.randomUUID(),
+        business_id: businessId,
+        event_type: 'manager_auth_scan_failed',
+        severity: 'warn',
+        target_type: 'manager_card',
+        actor_supabase_id: callerStaff?.supabase_id || null,
+        actor_role: callerStaff?.role || null,
+        reason: 'no_match_for_token_hash',
+        metadata: { token_len: raw.length, ip: callerIp(req) || null },
+      })
+    } catch (logErr) { console.error('[staff-verify-auth] activity log failed:', logErr?.message) }
+    return res.status(200).json({ match: null })
+  }
+
+  // Successful match also logged (severity=info) for audit completeness.
+  try {
+    await admin.from('activity_log').insert({
+      supabase_id: crypto.randomUUID(),
+      business_id: businessId,
+      event_type: 'manager_auth_scan_success',
+      severity: 'info',
+      target_type: 'manager_card',
+      target_id: String(match.id),
+      target_name: `${match.name} (@${match.username})`,
+      actor_supabase_id: callerStaff?.supabase_id || null,
+      actor_role: callerStaff?.role || null,
+      metadata: { matched_role: match.role },
+    })
+  } catch (logErr) { console.error('[staff-verify-auth] activity log failed:', logErr?.message) }
 
   return res.status(200).json({
     match: {
