@@ -60,13 +60,38 @@ function uuid() {
 
 function nowIso() { return new Date().toISOString() }
 
-async function tryOr(fn, fallback) {
-  try { return await fn() } catch { return fallback }
+// 2026-05-18 — Was a bare `catch { return fallback }` for 16 SELECT call sites
+// in this file, invisible to admin Errores. Now forwards to __txReportError
+// with severity=warn so contabilidad read failures (RLS / JWT-expired / 4xx)
+// surface in the admin panel like every other read path. Boot-auth transients
+// are filtered to avoid spam during page-load.
+async function tryOr(fn, fallback, label) {
+  try { return await fn() } catch (err) {
+    if (typeof console !== 'undefined') console.debug?.('[contabilidad.read]', label || '', err?.message || err)
+    try {
+      const msg = String(err?.message || err || '')
+      const isBootAuth = /JWT|jwt expired|Invalid Refresh Token|Auth session missing|not authenticated|401/i.test(msg)
+      if (!isBootAuth && typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
+        window.__txReportError(err, { severity: 'warn', category: label || 'web.contabilidad.read' })
+      }
+    } catch {}
+    return fallback
+  }
 }
-async function tryWrite(fn) {
-  const r = await fn()
-  if (r?.error) throw r.error
-  return r?.data ?? null
+async function tryWrite(fn, label) {
+  try {
+    const r = await fn()
+    if (r?.error) throw r.error
+    return r?.data ?? null
+  } catch (err) {
+    console.error('[contabilidad.WRITE]', label || '', err?.message || err)
+    try {
+      if (typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
+        window.__txReportError(err, { severity: 'error', category: label || 'web.contabilidad.write' })
+      }
+    } catch {}
+    throw err
+  }
 }
 
 export function createContabilidadAPI(supabase, businessId) {
