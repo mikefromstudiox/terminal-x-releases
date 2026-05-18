@@ -90,17 +90,22 @@ const { error: licErr } = await supabase.from('licenses').insert({
 if (licErr) { console.error('licenses.insert:', licErr); process.exit(1) }
 console.log(`  ✓ license active (web, expires ${trialEnd.slice(0, 10)})`)
 
-// NCF sequences
+// NCF sequences. B01 + B02 (paper) enabled by default — every POS vertical
+// needs them on day 1 to cobrar. Otherwise atomic_next_ncf rejects and the
+// owner sees "No se pudo reservar el NCF" with no clear path forward (the
+// support ticket pattern that bit CAR WASH DJ on 2026-05-17). E-series stays
+// disabled until DGII cert + postulación are set up via Sistema → e-CF.
 const ncfTypes = ['B01', 'B02', 'B14', 'B15', 'E31', 'E32', 'E33', 'E34']
 for (const type of ncfTypes) {
+  const enabled = (type === 'B01' || type === 'B02')
   await supabase.from('ncf_sequences').upsert({
     supabase_id: crypto.randomUUID(),
     business_id: biz.id, type, prefix: type,
     current_number: 0, limit_number: 500,
-    enabled: false, active: true,
+    enabled, active: true,
   }, { onConflict: 'business_id,type', ignoreDuplicates: true })
 }
-console.log(`  ✓ ncf_sequences seeded (${ncfTypes.length} types, disabled)`)
+console.log(`  ✓ ncf_sequences seeded (${ncfTypes.length} types; B01+B02 enabled, E-series disabled)`)
 
 // CRM update
 if (lead?.id) {
