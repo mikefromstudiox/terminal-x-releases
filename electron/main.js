@@ -2704,6 +2704,11 @@ handleMut('tickets:transferToMesa', ({ ticket_supabase_id, new_mesa_id } = {}) =
 handleMut('tickets:merge', ({ target_ticket_supabase_id, source_ticket_supabase_id } = {}) =>
   db.ticketMerge({ target_ticket_supabase_id, source_ticket_supabase_id }))
 
+// Mesas add-on: running-tab append flow.
+handle('tickets:byMesa',         (mesaSid)      => db.ticketGetActiveByMesaSupabaseId(mesaSid))
+handleMut('tickets:appendItems', ({ ticket_supabase_id, items } = {}) =>
+  db.ticketAppendItems({ ticket_supabase_id, items }))
+
 // v2.16.3 H4 — Restaurant front-of-house reservations.
 handle('reservations:list',          (params)       => db.reservationsList(params || {}))
 handleMut('reservations:create',     (data)         => db.reservationsCreate(data || {}))

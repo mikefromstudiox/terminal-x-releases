@@ -6246,6 +6246,159 @@ function ticketTransferToMesa({ ticket_supabase_id, new_mesa_id } = {}) {
   return tx()
 }
 
+// ── Mesas add-on: running-tab support ─────────────────────────────────────
+// ticketGetActiveByMesaSupabaseId — latest open ticket on a mesa with items.
+// Used by the POS to re-hydrate the cart when reclicking an occupied mesa.
+function ticketGetActiveByMesaSupabaseId(mesaSupabaseId) {
+  if (!db) throw new Error('DB no inicializada')
+  if (!mesaSupabaseId) return null
+  const ticket = db.prepare(
+    `SELECT * FROM tickets
+       WHERE mesa_supabase_id=? AND open_status='open'
+       ORDER BY created_at DESC LIMIT 1`
+  ).get(mesaSupabaseId)
+  if (!ticket) return null
+  const items = db.prepare(
+    `SELECT id, supabase_id, name, price, quantity, preparation_notes, weight,
+            service_id, inventory_item_id, service_supabase_id,
+            inventory_item_supabase_id, is_wash, itbis, cost
+       FROM ticket_items
+       WHERE ticket_id=? OR ticket_supabase_id=?
+       ORDER BY id ASC`
+  ).all(ticket.id, ticket.supabase_id || '')
+  return {
+    ...ticket,
+    items: items.map(i => ({
+      ...i,
+      qty: i.quantity,
+      _cartKey: i.supabase_id || `tk-${i.id}`,
+      _wasExisting: true,
+    })),
+  }
+}
+
+// ticketAppendItems — append NEW items to an open ticket, recompute totals.
+// Loud throws on race (closed/voided between load and save). Activity-logged.
+// KNOWN GAPS: see web.js companion — commissions + journal_entries not wired.
+function ticketAppendItems({ ticket_supabase_id, items } = {}) {
+  if (!db) throw new Error('DB no inicializada')
+  if (!ticket_supabase_id) throw new Error('Falta ticket_supabase_id')
+  if (!Array.isArray(items) || items.length === 0) throw new Error('No hay items para agregar')
+
+  const tx = db.transaction(() => {
+    const cur = db.prepare(
+      `SELECT id, supabase_id, open_status, status, doc_number, mesa_supabase_id, business_id
+         FROM tickets WHERE supabase_id=?`
+    ).get(ticket_supabase_id)
+    if (!cur) throw new Error('Ticket no encontrado')
+    if (cur.open_status !== 'open' ||
+        ['cobrado','done','cancelled','voided','nula','anulado'].includes(String(cur.status || '').toLowerCase())) {
+      throw new Error('Ticket ya cerrado')
+    }
+
+    let itbisFactor = 0.18
+    try {
+      const pctRow = db.prepare(
+        `SELECT value FROM app_settings WHERE business_id=? AND key='itbis_pct' LIMIT 1`
+      ).get(cur.business_id || '')
+      const pctNum = Number(pctRow?.value)
+      if (Number.isFinite(pctNum) && pctNum >= 0) itbisFactor = pctNum / 100
+    } catch (e) {
+      throw new Error('itbis_pct lookup: ' + e.message)
+    }
+
+    const svcIds = items.map(i => i.service_id).filter(Boolean)
+    const svcMeta = new Map()
+    if (svcIds.length) {
+      const placeholders = svcIds.map(() => '?').join(',')
+      const svcRows = db.prepare(
+        `SELECT id, cost, aplica_itbis FROM services WHERE id IN (${placeholders})`
+      ).all(...svcIds)
+      for (const r of svcRows) svcMeta.set(r.id, { cost: r.cost || 0, aplica_itbis: r.aplica_itbis ?? 1 })
+    }
+
+    const insStmt = db.prepare(
+      `INSERT INTO ticket_items
+        (supabase_id, ticket_id, ticket_supabase_id, service_id, inventory_item_id,
+         service_supabase_id, inventory_item_supabase_id, name, price, cost, itbis,
+         is_wash, quantity, weight, preparation_notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+    )
+
+    let addedTotal = 0
+    for (const i of items) {
+      const price = Number(i.price) || 0
+      const qty = Number(i.quantity || i.qty || 1)
+      const meta = i.service_id ? svcMeta.get(i.service_id) : null
+      const aplica = i.aplica_itbis !== undefined ? i.aplica_itbis : (meta?.aplica_itbis ?? 1)
+      const itbis = aplica === 0 ? 0 : parseFloat((price - price / (1 + itbisFactor)).toFixed(2))
+      const cost = i.cost != null ? Number(i.cost) : (meta?.cost || 0)
+      insStmt.run(
+        i.supabase_id || crypto.randomUUID(),
+        cur.id,
+        cur.supabase_id || ticket_supabase_id,
+        i.service_id || null,
+        i.inventory_item_id || null,
+        i.service_supabase_id || null,
+        i.inventory_item_supabase_id || null,
+        i.name,
+        price,
+        cost,
+        itbis,
+        i.is_wash != null ? (i.is_wash ? 1 : 0) : 1,
+        qty,
+        i.weight != null ? Number(i.weight) : null,
+        i.preparation_notes || null,
+      )
+      addedTotal += price * qty
+    }
+
+    const allRows = db.prepare(
+      `SELECT price, quantity, itbis FROM ticket_items
+         WHERE ticket_id=? OR ticket_supabase_id=?`
+    ).all(cur.id, cur.supabase_id || '')
+    let subtotal = 0, itbis = 0
+    for (const r of allRows) {
+      const line = (Number(r.price) || 0) * (Number(r.quantity) || 1)
+      subtotal += line
+      itbis    += (Number(r.itbis) || 0) * (Number(r.quantity) || 1)
+    }
+    subtotal = parseFloat(subtotal.toFixed(2))
+    itbis    = parseFloat(itbis.toFixed(2))
+    const total = subtotal
+
+    db.prepare(
+      `UPDATE tickets SET subtotal=?, itbis=?, total=?, updated_at=datetime('now')
+         WHERE id=?`
+    ).run(subtotal, itbis, total, cur.id)
+
+    try {
+      activityLogRecord({
+        event_type: 'ticket_append_items',
+        severity: 'info',
+        target_type: 'ticket',
+        target_id: cur.id,
+        target_name: cur.doc_number || `#${cur.id}`,
+        amount: parseFloat(addedTotal.toFixed(2)),
+        metadata: {
+          ticket_supabase_id,
+          mesa_supabase_id: cur.mesa_supabase_id,
+          added_count: items.length,
+          added_total: parseFloat(addedTotal.toFixed(2)),
+          new_total: total,
+        },
+      })
+    } catch (e) {
+      // Activity log is best-effort. Log to console for diagnostics but
+      // never fail the append on a logging issue.
+      console.error('[ticketAppendItems] activity log failed:', e.message)
+    }
+
+    return { ok: true, ticket_supabase_id, added: items.length, subtotal, itbis, total }
+  })
+  return tx()
+}
+
 // ─── v2.16.3 H3 — Restaurante "Juntar" (merge tickets) ─────────────────────
 function ticketMerge({ target_ticket_supabase_id, source_ticket_supabase_id } = {}) {
   if (!db) throw new Error('DB no inicializada')
@@ -14249,6 +14402,7 @@ module.exports = {
   ticketOpenForMesa, ticketAddItem, ticketUpdateItemQty, ticketRemoveItem, ticketGetActiveByMesa, ticketCloseWithPayment,
   // v2.16.3 H3 — Restaurante Mover/Juntar
   ticketTransferToMesa, ticketMerge,
+  ticketGetActiveByMesaSupabaseId, ticketAppendItems,
   // v2.16.3 H4 — Restaurant front-of-house reservations
   reservationsList, reservationsCreate, reservationsUpdate,
   reservationsConfirm, reservationsCancel, reservationsMarkNoShow,
