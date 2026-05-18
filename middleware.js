@@ -1116,14 +1116,20 @@ export default async function middleware(request) {
 
   const headers = new Headers(originResponse.headers);
   headers.set('Content-Security-Policy', csp);
-  // 2026-05-18 — was 'no-store, must-revalidate' which forced Chrome/Firefox
-  // to disable the back/forward cache entirely (Lighthouse: "Page prevented
-  // back/forward cache restoration"). 'no-cache' still requires revalidation
-  // with the origin on every navigation (so per-request CSP nonce stays
-  // unique) but PERMITS bfcache restore for back/forward gestures — instant
-  // restore, no LCP cost. 'private' prevents intermediate proxies from
-  // caching the nonced HTML.
-  headers.set('Cache-Control', 'private, no-cache, must-revalidate');
+  // CRITICAL: Cache-Control MUST be 'no-store' to prevent Vercel Edge from
+  // caching the rewritten HTML body. The body carries a nonce; the CSP
+  // header is regenerated per-request. If the edge serves a cached body
+  // with one nonce while sending a freshly-built CSP with a different
+  // nonce, the browser blocks every script → white screen for every visitor.
+  //
+  // This happened on 5abeed6 (bfcache optimization attempt). Reverted on
+  // 2026-05-18 after live nonce-mismatch outage.
+  //
+  // Also explicitly disable the Vercel CDN cache layer to be safe (private
+  // + no-cache alone isn't enough — Vercel needs the explicit directive).
+  headers.set('Cache-Control', 'no-store, must-revalidate');
+  headers.set('CDN-Cache-Control', 'no-store');
+  headers.set('Vercel-CDN-Cache-Control', 'no-store');
   headers.delete('content-length');
 
   return new Response(injected, {
