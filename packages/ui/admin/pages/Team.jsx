@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Plus, Shield, ShieldCheck, Eye, Briefcase, Target } from 'lucide-react'
+import { Loader2, Plus, Shield, ShieldCheck, Eye, Briefcase, Target, Trash2 } from 'lucide-react'
 import { listContainer, listItem } from '../motion'
 
 const ROLE_LABELS = {
@@ -69,6 +69,29 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
       body: JSON.stringify({ id: user.id, active: !user.active }),
     })
     load()
+  }
+
+  // 2026-05-18 — Hard-delete an admin user row. Confirms with the row's name.
+  // Server enforces super_admin auth + blocks self-delete (would lock the
+  // last super_admin out of /admin).
+  async function deleteUser(user) {
+    const ok = window.confirm(
+      L(`Eliminar definitivamente "${user.name}"? Esta acción NO se puede deshacer.`,
+        `Permanently delete "${user.name}"? This cannot be undone.`)
+    )
+    if (!ok) return
+    try {
+      const resp = await fetch(`/api/panel?action=users&id=${encodeURIComponent(user.id)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${getToken()}` },
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(data.error || 'Error')
+      load()
+    } catch (err) {
+      try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'error', category: 'team.delete', extra: { user_id: user.id } }) } catch {}
+      window.alert(err.message || L('Error al eliminar usuario', 'Error deleting user'))
+    }
   }
 
   const tableBase = isDark ? 'bg-white/[0.03] border border-white/10' : 'bg-white border border-black/10 shadow-sm'
@@ -207,6 +230,14 @@ export default function Team({ getToken, refreshToken, isDark, lang }) {
                       className={`text-[11px] font-semibold transition-colors ${isDark ? 'text-white/40 hover:text-[#b3001e]' : 'text-black/40 hover:text-[#b3001e]'}`}
                     >
                       {u.active ? L('Desactivar', 'Deactivate') : L('Activar', 'Activate')}
+                    </motion.button>
+                    <motion.button
+                      whileTap={{ scale: 0.92 }}
+                      onClick={() => deleteUser(u)}
+                      title={L('Eliminar definitivamente', 'Permanently delete')}
+                      className="ml-2 p-1.5 rounded-lg text-red-500/70 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash2 size={14} />
                     </motion.button>
                   </motion.div>
                 )

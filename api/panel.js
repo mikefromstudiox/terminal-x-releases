@@ -2162,6 +2162,27 @@ async function handleUsers(req, res) {
     if (error) return res.status(500).json({ error: error.message })
     return res.json({ data })
   }
+  // 2026-05-18 — DELETE: hard-erase an admin user row. super_admin only.
+  // Self-delete blocked (super_admin would lock themselves out of /admin).
+  // The auth.users row is left intact so the email can still own a regular
+  // POS business account — only the admin_users entry is removed.
+  if (req.method === 'DELETE') {
+    const auth = await requireAdmin(req, 'super_admin')
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    const id = req.query.id || req.body?.id
+    if (!id) return res.status(400).json({ error: 'id required' })
+    // Self-guard: look up the caller's admin_users row by auth.user.id (same
+    // pattern as requireAdmin) and reject if they're trying to delete themselves.
+    const { data: caller } = await auth.supabase.from('admin_users').select('id').eq('auth_user_id', auth.user.id).maybeSingle()
+    if (caller && caller.id === id) {
+      return res.status(400).json({ error: 'No puedes eliminar tu propio usuario admin' })
+    }
+    const { data: row } = await auth.supabase.from('admin_users').select('id, name, role').eq('id', id).maybeSingle()
+    if (!row) return res.status(404).json({ error: 'admin_user not found' })
+    const { error } = await auth.supabase.from('admin_users').delete().eq('id', id)
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true, deleted: { id: row.id, name: row.name, role: row.role } })
+  }
   return res.status(405).json({ error: 'Method not allowed' })
 }
 
