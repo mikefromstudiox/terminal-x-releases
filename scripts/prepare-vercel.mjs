@@ -54,7 +54,12 @@ for (const f of readdirSync(libDir)) {
 }
 
 // Middleware + project link
-copyFileSync(join(ROOT, 'web/middleware.js'), join(DIST, 'middleware.js'))
+// 2026-05-18 — web/middleware.js DELETED. Same dual-file drift class that
+// killed Layer 3 + Layer 6 crons (handlers in web/api/panel.js while Vercel
+// served /api/panel.js at root). Schema agent edited web/middleware.js,
+// repo-root /middleware.js stayed stale, fabricated AggregateRating
+// stayed live in production. Single source of truth now: /middleware.js
+// at repo root. No copy needed — Vercel auto-detects it there.
 // NOTE 2026-05-17: We no longer copy web/vercel.json into dist-web/. When
 // `outputDirectory` is set in the root vercel.json (which it is), Vercel
 // IGNORES any vercel.json inside the output directory — only the root
