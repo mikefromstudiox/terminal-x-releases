@@ -947,7 +947,7 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.admin.saveServicio'),
 
       deleteServicio: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('services').update({ active: false }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('services').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.services.softDelete')
       }, 'web.admin.deleteServicio'),
 
       getCategorias: () => tryOr(async () => {
@@ -1805,7 +1805,7 @@ export function createWebAPI(supabase, businessId) {
         const { id, ...rest } = data
         const allowed = ['nombre', 'orden']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
-        throwSupaError(await supabase.from('categorias_servicio').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('categorias_servicio').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.categorias.update')
       }, 'web.categorias.update'),
 
       delete: (id) => tryWrite(async () => {
@@ -1814,7 +1814,7 @@ export function createWebAPI(supabase, businessId) {
         const { count } = await supabase.from('services').select('id', { count: 'exact', head: true })
           .eq('business_id', bid).eq('categoria_id', actualId)
         if (count > 0) throw new Error('Categoria tiene servicios asociados')
-        throwSupaError(await supabase.from('categorias_servicio').delete().eq('id', actualId).eq('business_id', bid))
+        await assertAffected(supabase.from('categorias_servicio').delete().eq('id', actualId).eq('business_id', bid).select('id'), 'web.categorias.delete')
       }, 'web.categorias.delete'),
     },
 
@@ -1893,7 +1893,7 @@ export function createWebAPI(supabase, businessId) {
         const priorRow = 'price' in patch
           ? (await supabase.from('services').select('name, price').eq('id', id).eq('business_id', bid).maybeSingle())?.data
           : null
-        throwSupaError(await supabase.from('services').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('services').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.services.update.v2')
         if (priorRow && Number(priorRow.price) !== Number(patch.price)) {
           await logActivity({ event_type: 'service_price_changed', severity: 'warn',
             target_type: 'service', target_id: id, target_name: priorRow.name,
@@ -1955,7 +1955,7 @@ export function createWebAPI(supabase, businessId) {
         if (del.error) {
           const fkBlocked = del.error.code === '23503' || /foreign key|referenced/i.test(del.error.message || '')
           if (!fkBlocked) throw new Error(del.error.message || 'Error al eliminar servicio')
-          throwSupaError(await supabase.from('services').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid))
+          await assertAffected(supabase.from('services').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id).eq('business_id', bid).select('id'), 'web.services.softDelete.v2')
           await logActivity({ event_type: 'service_deleted', severity: 'warn',
             target_type: 'service', target_id: id,
             target_name: svc?.name || `#${id}`, amount: svc?.price, metadata: { soft: true, reason: 'has_history' } })
