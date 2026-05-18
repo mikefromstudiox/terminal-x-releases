@@ -41,6 +41,22 @@ async function handler(req, res) {
   // a rate cap also curbs online guessing/DoS noise. Fails OPEN on RPC error.
   const rlIp = callerIp(req)
   if (!(await checkRateLimit(`staff-verify:${rlIp}`, 30))) {
+    // 2026-05-18 followup — synthetic activity_log row so brute-forcers above
+    // the rate cap aren't invisible to admin. Dedup is loose (one per IP per
+    // minute via the rate limiter's own key window).
+    try {
+      const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
+      const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body || {})
+      await admin.from('activity_log').insert({
+        supabase_id: crypto.randomUUID(),
+        business_id: body?.businessId || null,
+        event_type: 'manager_auth_rate_limited',
+        severity: 'warn',
+        target_type: 'manager_card',
+        reason: `rate_limited_30_per_min_ip=${rlIp}`,
+        metadata: { ip: rlIp, business_id: body?.businessId || null },
+      })
+    } catch (_logErr) { /* fail open if logging itself fails */ }
     return res.status(429).json({ error: 'rate_limited' })
   }
 
