@@ -379,6 +379,87 @@ function buildInfraScenarios(base) {
     },
   })
 
+  // 2026-05-18 — Dispatcher-drift catcher. Probes every CRITICAL ?action=
+  // and asserts the live /api/panel responds non-"Unknown action". If a
+  // dispatcher entry got dropped (the dual-file drift class that took down
+  // Layer 3 + Layer 6 crons earlier today — see commits 1d28f62 + 89b2391),
+  // the live API returns HTTP 400 { error: 'Unknown action' } and we want
+  // that to FAIL THE SMOKE immediately, not silently.
+  //
+  // Rule of thumb: any action that has a backing Vercel cron, a backing
+  // admin Dashboard card, or otherwise must respond in production, gets
+  // listed here. Add an entry when you add a new cron/action handler.
+  //
+  // Probing with a deliberately bad Bearer so we never run the actual work.
+  // Expected response shapes:
+  //   401 unauthorized   → action exists + auth-gated (correct)
+  //   400 + JSON body    → action exists + rejected our payload (correct)
+  //   400 + { error: 'Unknown action' } → DRIFT, dispatcher missing entry
+  //   405 / HTML body    → SPA fallback ate the route (different infra bug,
+  //                        Layer 1 catches it independently)
+  const CRITICAL_ACTIONS = [
+    // Crons (must fire on schedule)
+    'cron_deploy_smoke',
+    'cron_health_verifier',
+    'cron_flow_drift_smoke',
+    'cron_mega_smoke',
+    'cron_claude_triage',
+    'cron_claude_anomaly_scan',
+    'cron_dgii_pull',
+    // History endpoints (admin Dashboard reads)
+    'deploy_smoke_history',
+    'cron_health_history',
+    'flow_drift_history',
+    'mega_smoke_history',
+    'claude_triage_history',
+    // Claude features (per-business toggles + DGII translator)
+    'claude_flags_get',
+    'claude_flags_set',
+    'claude_translate_dgii_error',
+    // Core admin
+    'report_error',
+    'errors_list',
+    'users',
+    'clients',
+    'stats',
+  ]
+  for (const action of CRITICAL_ACTIONS) {
+    out.push({
+      id: `infra.dispatcher_${action}`,
+      category: 'infra',
+      name: `/api/panel?action=${action} is registered (not "Unknown action")`,
+      fn: async () => {
+        const r = await tfetch(`${base}/api/panel?action=${encodeURIComponent(action)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer drift-check-bad-token' },
+          body: '{}',
+        })
+        const text = await r.text().catch(() => '')
+        // Detect the canonical "Unknown action" 400 response from the
+        // dispatcher fall-through (see end of handler in api/panel.js).
+        if (r.status === 400 && /unknown action/i.test(text)) {
+          return {
+            ok: false,
+            expected: 'action registered (401/400/200)',
+            observed: `400 Unknown action — dispatcher missing entry. Likely dual-file drift: handler exists in web/api/panel.js but not in root /api/panel.js (the one Vercel serves).`,
+          }
+        }
+        // HTML body means the SPA catch-all ate the API route — different bug,
+        // Layer 1's other infra scenarios catch it, but flag here too.
+        if (/^<!doctype html/i.test(text)) {
+          return {
+            ok: false,
+            expected: 'JSON response from /api/panel function',
+            observed: `${r.status} HTML body (SPA fallback ate the route — Vercel function not deployed)`,
+          }
+        }
+        // Anything else = action exists. 401 = auth-gated, 400 = validation
+        // rejected our empty body, 200 = action ran (rare for unauthed POST).
+        return { ok: true, detail: `${r.status}` }
+      },
+    })
+  }
+
   return out
 }
 
