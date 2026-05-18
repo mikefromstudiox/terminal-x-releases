@@ -4899,12 +4899,12 @@ export function createWebAPI(supabase, businessId) {
         // total under the single payment_method.
         const d = date || new Date().toISOString().slice(0, 10)
         const { data: rows } = await supabase.from('tickets')
-          .select('total, payment_method, payment_parts')
+          .select('total, payment_method, payment_parts, notes')
           .eq('business_id', bid)
           .eq('status', 'cobrado')
           .gte('created_at', `${d}T00:00:00`)
           .lte('created_at', `${d}T23:59:59`)
-        if (!rows) return { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, pedidos_ya: 0, totalVendido: 0, totalCobrado: 0, count: 0 }
+        if (!rows) return { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, pedidos_ya: 0, totalVendido: 0, totalCobrado: 0, count: 0, depositos_cobrados: 0, depositos_devueltos: 0, depositos_neto: 0 }
         // payment_method may come from desktop (Spanish: efectivo/tarjeta/...) OR
         // from web (English: cash/card/transfer/check/credit). Normalize both.
         // 2026-05-18 Fix F — `pedidos_ya` channel was missing from the alias map
@@ -4924,6 +4924,13 @@ export function createWebAPI(supabase, businessId) {
         const result = { efectivo: 0, tarjeta: 0, transferencia: 0, cheque: 0, credito: 0, pedidos_ya: 0 }
         let totalVendido = 0, totalCobrado = 0
         for (const r of rows) {
+          // 2026-05-18 followup #6 — Skip deposit-return refund tickets from the
+          // main bucket sweep so they don't double-count against the dedicated
+          // depositos_devueltos branch below. Reportes (which lacks the deposit
+          // logic) will diverge from Cuadre by exactly the refund amount unless
+          // we exclude them here.
+          const isDepositReturn = (Number(r.total || 0) < 0) && /\[deposit_return\]/i.test(String(r.notes || ''))
+          if (isDepositReturn) continue
           const tot = Number(r.total || 0)
           totalVendido += tot
           // JSONB returns already-parsed arrays, but older desktop clients
