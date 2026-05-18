@@ -84,6 +84,11 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   // cannot see. Cron at /api/panel?action=cron_flow_drift_smoke every 15 min.
   const [flowDrift, setFlowDrift] = useState([])
   const [flowDriftExpanded, setFlowDriftExpanded] = useState(false)
+  // Layer 6 — MEGA SMOKE. ~100 scenarios covering every silent-bug class that
+  // has bitten this codebase. Cron at /api/panel?action=cron_mega_smoke every
+  // 15 min. Card shows pass count + click-to-expand failures.
+  const [megaSmoke, setMegaSmoke] = useState([])
+  const [megaSmokeExpanded, setMegaSmokeExpanded] = useState(false)
   // Layer 5 — Claude Triage. Anthropic-powered RCA on every critical incident.
   const [triage, setTriage] = useState({ data: [], stats: null })
   const [triageExpanded, setTriageExpanded] = useState(false)
@@ -128,7 +133,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       let token = await refreshToken()
       if (!token) token = getToken()
       const headers = { 'Authorization': `Bearer ${token}` }
-      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp, cronHealthResp, flowDriftResp, triageResp] = await Promise.all([
+      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp, cronHealthResp, flowDriftResp, triageResp, megaSmokeResp] = await Promise.all([
         fetch('/api/panel?action=stats', { headers }),
         fetch('/api/panel?action=activity_feed', { headers }),
         fetch('/api/panel?action=loyalty-overview', { headers }),
@@ -138,6 +143,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
         fetch('/api/panel?action=cron_health_history&limit=20', { headers }),
         fetch('/api/panel?action=flow_drift_history&limit=20', { headers }),
         fetch('/api/panel?action=claude_triage_history&limit=20', { headers }),
+        fetch('/api/panel?action=mega_smoke_history&limit=20', { headers }),
       ])
       if (statsResp.ok) setStats(await statsResp.json())
       if (feedResp.ok) { const f = await feedResp.json(); setFeed(f.data || []) }
@@ -147,6 +153,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       if (smokeResp.ok) setSmokeHistory(((await smokeResp.json()).data) || [])
       if (cronHealthResp.ok) setCronHealth(((await cronHealthResp.json()).data) || [])
       if (flowDriftResp.ok) setFlowDrift(((await flowDriftResp.json()).data) || [])
+      if (megaSmokeResp.ok) setMegaSmoke(((await megaSmokeResp.json()).data) || [])
       if (triageResp.ok) {
         const j = await triageResp.json()
         setTriage({ data: j.data || [], stats: j.stats || null })
@@ -466,6 +473,77 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                 {latest.failures.map((f, i) => (
                   <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
                     <span className="font-bold">{f.scenario}</span>
+                    {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 240)}</span> : null}
+                    {f.observed ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>observed: {String(f.observed).slice(0, 240)}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )
+      })()}
+
+      {/* Mega Smoke — Layer 6 comprehensive drift + silent-bug net. 100+
+          scenarios across infra, env, schema, RLS, per-vertical flows, mesas,
+          contabilidad, plan gating, cron liveness, e-CF. Failures escalate to
+          client_errors as critical and Layer 5 (Claude Triage) auto-diagnoses
+          + WhatsApps Mike (throttled). */}
+      {(() => {
+        const latest = megaSmoke[0]
+        if (!latest) {
+          return (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              className={`rounded-2xl p-4 transition-colors ${cardBase} flex items-center justify-between`}>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <p className={`text-[13px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                  {L('Mega Smoke — sin datos aún (cron corre cada 15 min).', 'Mega Smoke — no data yet (cron runs every 15 min).')}
+                </p>
+              </div>
+            </motion.div>
+          )
+        }
+        const ts = new Date(latest.ran_at)
+        const minsAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000))
+        const failing = latest.failed_count > 0
+        const yellow = !failing ? false : latest.failed_count <= 3
+        const red = failing && !yellow
+        const dotColor = red ? 'bg-red-500' : yellow ? 'bg-amber-400' : 'bg-emerald-500'
+        const bgTone = red
+          ? (isDark ? 'border-red-500/40 bg-red-500/10' : 'border-red-500/40 bg-red-500/5')
+          : yellow
+            ? (isDark ? 'border-amber-500/40 bg-amber-500/10' : 'border-amber-500/40 bg-amber-500/5')
+            : ''
+        return (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            className={`rounded-2xl p-5 transition-colors border ${cardBase} ${bgTone}`}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${red ? 'animate-pulse' : ''}`} />
+                <div>
+                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                    {L(`Mega Smoke: ${latest.passed_count}/${latest.total_count} OK${failing ? ` · ${latest.failed_count} fallido${latest.failed_count === 1 ? '' : 's'}` : ''}`,
+                       `Mega Smoke: ${latest.passed_count}/${latest.total_count} OK${failing ? ` · ${latest.failed_count} failed` : ''}`)}
+                  </p>
+                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                    {L(`Hace ${minsAgo} min · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'} · WhatsApp ${latest.whatsapp_sent_count || 0}`,
+                       `${minsAgo}m ago · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'} · WhatsApp ${latest.whatsapp_sent_count || 0}`)}
+                  </p>
+                </div>
+              </div>
+              {failing && (
+                <button onClick={() => setMegaSmokeExpanded(s => !s)}
+                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${isDark ? 'border-red-400/40 text-red-300 hover:bg-red-500/10' : 'border-red-500/40 text-red-600 hover:bg-red-500/5'}`}>
+                  {megaSmokeExpanded ? L('Ocultar', 'Hide') : L('Ver fallos', 'Show failures')}
+                </button>
+              )}
+            </div>
+            {failing && megaSmokeExpanded && Array.isArray(latest.failures) && (
+              <div className="mt-3 space-y-1.5 max-h-96 overflow-y-auto">
+                {latest.failures.map((f, i) => (
+                  <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
+                    <span className="font-bold">{f.id || f.category}</span>
+                    {f.name ? <span className={isDark ? 'block text-white/50' : 'block text-black/50'}>{f.name}</span> : null}
                     {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 240)}</span> : null}
                     {f.observed ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>observed: {String(f.observed).slice(0, 240)}</span> : null}
                   </div>

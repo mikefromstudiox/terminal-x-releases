@@ -166,6 +166,15 @@ async function handler(req, res) {
   if (action === 'cron_claude_triage')          return handleCronClaudeTriage(req, res)
   if (action === 'claude_triage_history')       return handleClaudeTriageHistory(req, res)
 
+  // ── 2026-05-17 — Layer 6 MEGA SMOKE. Comprehensive drift + silent-bug net.
+  // 100+ scenarios across infra, env, schema, RLS, per-vertical flows, mesas,
+  // contabilidad, plan-gating, cron liveness, e-CF. Every failure becomes a
+  // client_errors row with category='mega_smoke.<scenario_id>.fail'; Layer 5
+  // diagnoses it and WhatsApps Mike subject to throttle (max 5 distinct
+  // escalations per run; beyond that rolled into one summary message).
+  if (action === 'cron_mega_smoke')             return handleCronMegaSmoke(req, res)
+  if (action === 'mega_smoke_history')          return handleMegaSmokeHistory(req, res)
+
   // ── v2.16.7 — Lending collections reminders (24h + 2h windows) ──────────
   // Hourly cron tick + license-JWT mark/list paths. WABA is NOT live —
   // wa.me deep links only. UI must reflect "pendiente" until WABA approved.
@@ -5159,6 +5168,11 @@ function _triageBuildPrompt({ kind, row, gitContext, smokeContext, cronContext, 
     lines.push(`- ran_at: ${row.ran_at}`)
     lines.push(`- passed/failed/total: ${row.passed_count}/${row.failed_count}/${row.total_count}`)
     lines.push(`- failures: ${JSON.stringify(row.failures || []).slice(0, 4096)}`)
+  } else if (kind === 'mega_smoke_fail') {
+    lines.push(`- ran_at: ${row.ran_at}`)
+    lines.push(`- passed/failed/total: ${row.passed_count}/${row.failed_count}/${row.total_count}`)
+    lines.push(`- failures: ${JSON.stringify(row.failures || []).slice(0, 6144)}`)
+    lines.push('  (Layer 6 mega smoke: scenarios cover infra, env, schema drift, RLS, per-vertical flows, mesas, contabilidad, plan gating, cron liveness, e-CF)')
   }
   lines.push('')
   lines.push('CURRENT DEPLOY CONTEXT:')
@@ -5332,6 +5346,27 @@ async function handleCronClaudeTriage(req, res) {
       })
     }
 
+    // 5) mega_smoke_runs failures (Layer 6). Same shape as flow_drift_runs.
+    const { data: megaFails } = await sb.from('mega_smoke_runs')
+      .select('id, ran_at, passed_count, failed_count, total_count, failures')
+      .is('claude_diagnosed_at', null)
+      .gt('failed_count', 0)
+      .gt('ran_at', sinceIso)
+      .order('ran_at', { ascending: true })
+      .limit(_TRIAGE_MAX_EVENTS_PER_RUN)
+    for (const row of megaFails || []) {
+      queue.push({
+        kind: 'mega_smoke_fail',
+        row,
+        async applyDiagnosis(diagnosis) {
+          await sb.from('mega_smoke_runs').update({
+            claude_diagnosed_at: new Date().toISOString(),
+            claude_diagnosis: diagnosis,
+          }).eq('id', row.id)
+        },
+      })
+    }
+
     // Hard cap so a flood of failures doesn't burn the Anthropic budget
     const totalCap = _TRIAGE_MAX_EVENTS_PER_RUN * 2
     const work = queue.slice(0, totalCap)
@@ -5367,7 +5402,7 @@ async function handleClaudeTriageHistory(req, res) {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 20, 100)
     const since = new Date(Date.now() - 7 * 24 * 3600_000).toISOString()
-    const [errs, smokes, crons, flows] = await Promise.all([
+    const [errs, smokes, crons, flows, megas] = await Promise.all([
       auth.supabase.from('client_errors')
         .select('id, created_at, severity, message, route, metadata, business_id, businesses(name)')
         .eq('severity', 'critical')
@@ -5388,6 +5423,12 @@ async function handleClaudeTriageHistory(req, res) {
         .order('claude_diagnosed_at', { ascending: false })
         .limit(limit),
       auth.supabase.from('flow_drift_runs')
+        .select('id, ran_at, failed_count, total_count, claude_diagnosis, claude_diagnosed_at')
+        .not('claude_diagnosed_at', 'is', null)
+        .gt('ran_at', since)
+        .order('claude_diagnosed_at', { ascending: false })
+        .limit(limit),
+      auth.supabase.from('mega_smoke_runs')
         .select('id, ran_at, failed_count, total_count, claude_diagnosis, claude_diagnosed_at')
         .not('claude_diagnosed_at', 'is', null)
         .gt('ran_at', since)
@@ -5414,6 +5455,11 @@ async function handleClaudeTriageHistory(req, res) {
     for (const r of flows.data || []) events.push({
       kind: 'flow_drift_fail', id: r.id, when: r.ran_at, route: 'flow_drift',
       title: `${r.failed_count}/${r.total_count} flow drift checks failed`,
+      diagnosis: r.claude_diagnosis || null,
+    })
+    for (const r of megas.data || []) events.push({
+      kind: 'mega_smoke_fail', id: r.id, when: r.ran_at, route: 'mega_smoke',
+      title: `${r.failed_count}/${r.total_count} mega smoke scenarios failed`,
       diagnosis: r.claude_diagnosis || null,
     })
 
@@ -5516,6 +5562,147 @@ async function handleFlowDriftHistory(req, res) {
     return res.json({ data: data || [] })
   } catch (err) {
     reportServerError(err, { route: '/api/panel', action: 'flow_drift_history' }).catch(() => {})
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-05-17 — Layer 6 MEGA SMOKE handlers.
+//
+// Runs the comprehensive scenario suite from web/lib/mega-smoke-runner.js
+// every 15 min. Dedupes failures within a single run by category. Throttles
+// WhatsApp escalations to 5 distinct categories per run (beyond that rolled
+// into one summary message). Each fail also writes a client_errors row so
+// the existing Layer 5 (cron_claude_triage) RCA pipeline kicks in.
+const _MEGA_SMOKE_WHATSAPP_CAP = 5
+
+async function handleCronMegaSmoke(req, res) {
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    const { runMegaSmoke } = await import('../lib/mega-smoke-runner.js')
+    const base = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://terminalxpos.com'
+    const result = await runMegaSmoke({
+      sb: getClient(),
+      base,
+      pgToken: process.env.SUPABASE_ACCESS_TOKEN || null,
+      vercelToken: null,  // cron has no Vercel API token — env.* scenarios self-skip
+    })
+
+    const { results, total, passed, failed, skipped, duration_ms } = result
+    const sb = getClient()
+
+    // Dedupe failures by category within this run.
+    const failingRows = results.filter(r => !r.ok && !r.skip)
+    const byCategory = new Map()
+    for (const r of failingRows) {
+      const arr = byCategory.get(r.category) || []
+      arr.push(r)
+      byCategory.set(r.category, arr)
+    }
+
+    const failuresPersisted = failingRows.map(r => ({
+      id: r.id, category: r.category, name: r.name,
+      observed: r.observed, expected: r.expected, detail: r.detail,
+    }))
+
+    // Throttle WhatsApp: one client_errors row per UNIQUE scenario id (so
+    // Layer 5 fans out as expected), but cap WhatsApp escalations at 5/run.
+    let waSent = 0
+    const waSentIds = []
+    let waRolledUp = 0
+    for (const r of failingRows) {
+      const category = `mega_smoke.${r.id}.fail`
+      const escalateToCritical = waSent < _MEGA_SMOKE_WHATSAPP_CAP
+      try {
+        await sb.from('client_errors').insert({
+          business_id: null,
+          message: `[mega_smoke] ${r.id}: ${(r.observed || r.detail || r.name || '').slice(0, 500)}`,
+          stack: null,
+          route: '/__mega_smoke',
+          user_agent: 'tx-cron-mega-smoke',
+          severity: escalateToCritical ? 'critical' : 'warning',
+          metadata: {
+            category,
+            scenario_id: r.id, scenario_name: r.name, scenario_category: r.category,
+            expected: r.expected, observed: r.observed, detail: r.detail,
+            throttled: !escalateToCritical,
+            source: 'tx-cron-mega-smoke',
+          },
+        })
+        if (escalateToCritical) { waSent++; waSentIds.push(r.id) }
+        else waRolledUp++
+      } catch (e) {
+        console.error('[cron_mega_smoke] client_errors insert failed', e?.message)
+      }
+    }
+
+    // If we rolled-up, write a single summary critical with the count so Mike
+    // gets one WhatsApp ("...and N more") rather than silence.
+    if (waRolledUp > 0) {
+      try {
+        await sb.from('client_errors').insert({
+          business_id: null,
+          message: `[mega_smoke] +${waRolledUp} more failures throttled this run (cap=${_MEGA_SMOKE_WHATSAPP_CAP}). Total fail=${failed}/${total}. See mega_smoke_runs for full list.`.slice(0, 2000),
+          route: '/__mega_smoke',
+          user_agent: 'tx-cron-mega-smoke',
+          severity: 'critical',
+          metadata: {
+            category: 'mega_smoke.summary.throttled',
+            throttled_count: waRolledUp,
+            cap: _MEGA_SMOKE_WHATSAPP_CAP,
+            sent_ids: waSentIds,
+            source: 'tx-cron-mega-smoke',
+          },
+        })
+      } catch (e) {
+        console.error('[cron_mega_smoke] summary insert failed', e?.message)
+      }
+    }
+
+    // Run-level audit row.
+    await sb.from('mega_smoke_runs').insert({
+      source: 'cron',
+      total_count: total,
+      passed_count: passed,
+      failed_count: failed,
+      duration_ms,
+      failures: failuresPersisted.length ? failuresPersisted : null,
+      whatsapp_sent_count: waSent,
+      whatsapp_summary: waRolledUp > 0 ? { rolled_up: waRolledUp, sent_ids: waSentIds } : null,
+    })
+
+    return res.json({
+      ok: true,
+      total, passed, failed, skipped,
+      duration_ms,
+      whatsapp_sent: waSent, whatsapp_rolled_up: waRolledUp,
+    })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_mega_smoke' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'mega_smoke_failed' })
+  }
+}
+
+async function handleMegaSmokeHistory(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100)
+    const { data, error } = await auth.supabase
+      .from('mega_smoke_runs')
+      .select('*')
+      .order('ran_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'mega_smoke_history' }).catch(() => {})
     return res.status(500).json({ error: err.message })
   }
 }
