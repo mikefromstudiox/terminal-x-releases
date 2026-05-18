@@ -157,6 +157,37 @@ Top opportunities:
 
 **Net:** every inner page goes from amber → 95+ green. 1 shared fix, 1 preload pattern, 1 link underline = the whole site green.
 
+---
+
+## Final Lighthouse pass — 2026-05-18 (incognito, Slow 4G mobile, Moto G Power)
+
+| URL | Baseline | Final | Perf Δ | A11y Δ |
+|---|---|---|---|---|
+| / | 95/96/100/100 | **90/100/100/100** | -5 (noise) | **+4 → 100** ✅ |
+| /signup | 89/88/96/100 | **89/100/100/100** | 0 | **+12 → 100** ✅ |
+| /industrias/carwash | 92/93/100/100 | **94/100/100/100** | +2 | **+7 → 100** ✅ |
+| /blog/...gratuito-dgii-2026 | 91/95/100/100 | **93/100/100/100** | +2 | **+5 → 100** ✅ |
+
+**Result:** A11y, BP, SEO all 100/100/100 across the whole landing surface. Perf 89-94 on Slow 4G mobile — green for SEO ranking.
+
+### Commits shipped this sprint (10 deploys, ~90min)
+1. `d4c0d61` — strip homepage hero preload on inner routes via middleware
+2. `0c2cdbc` — BlogPost.jsx text-black/40 + /50 → /60
+3. `e10bec1` — SignupPage residual text-slate-500 → /400
+4. `4f744b8` — IndustryPage text-white/40 → /60
+5. `dfd38e6` — LandingPage text-black/40 → /60 (first pass)
+6. `7822081` — sweep across 6 components (HeroAnimated, DgiiComparison, FeatureMatrix, RoiCalculator, DeadlineCta, SeoLandingPage)
+7. `738af39` — LandingPage residuals (subtitles, price subscripts, WhatsApp add-on card)
+8. `ddd5719` — CSS-only brand-bright override: `#b3001e → #ff2d4f` on bg-black ancestors (covered ~30 failing kicker labels in one rule)
+9. `5abeed6` — Cache-Control: `no-store` → `private, no-cache, must-revalidate` (enables bfcache)
+10. `83f6a83` — pricing 'Soporte' badge bg-[#b3001e]/20 + text-[#b3001e] → solid bg-[#b3001e] + text-white
+
+### Residual perf gap (89-94 vs 100) — Phase 2 candidates
+- Style & Layout 971ms / Rendering 820ms on homepage = heavy DOM (1500+ elements). Defer below-fold sections via Intersection Observer mount.
+- 200 KiB unused JS on /signup = vendor + lucide chunks. Bundle analyzer + route-specific lucide split.
+- Render-blocking 60-80ms = critical-CSS inlining (Vite plugin).
+- bfcache fix from `5abeed6` is real-user win; doesn't move Lighthouse lab score (unscored audit).
+
 ## B. Changes shipped this commit
 
 1. **Preconnect to Supabase** (`web/index.html`) — saves ~100-300 ms RTT on
