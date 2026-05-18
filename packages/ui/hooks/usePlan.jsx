@@ -28,7 +28,7 @@ const PLAN_FEATURES = {
   ],
   pro: [
     'pos', 'queue', 'clients', 'credits', 'reports',
-    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
+    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'inventory_count',
     // 2026-05-18 — `invoicing` removed from POS tiers (was pro/pro_plus/pro_max).
     // The standalone Facturación module + sidebar group is for clients on the
     // invoicing-ONLY plan. POS clients emit e-CF inside CobrarModal (gated by
@@ -50,7 +50,7 @@ const PLAN_FEATURES = {
   ],
   pro_plus: [
     'pos', 'queue', 'clients', 'credits', 'reports',
-    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
+    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'inventory_count',
     'ecf', 'dgii', 'dgii_606_607',
     // v2.16.10 — bundle promos, gated Pro PLUS+
     'ofertas',
@@ -102,7 +102,7 @@ const PLAN_FEATURES = {
   ],
   pro_max: [
     'pos', 'queue', 'clients', 'credits', 'reports',
-    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory',
+    'petty_cash', 'credit_notes', 'cash_recon', 'commissions', 'inventory', 'inventory_count',
     'ecf', 'dgii', 'dgii_606_607',
     // v2.16.10 — bundle promos, gated Pro PLUS+
     'ofertas',
