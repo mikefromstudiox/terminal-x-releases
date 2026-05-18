@@ -203,6 +203,48 @@ function isChunkMsg(x) {
 // ---------------------------------------------------------------------------
 const _errReportRecent = new Set()
 const _routeHistory = []
+
+// 2026-05-18 — Persistence layer for failed error reports. Up until now any
+// fetch failure (network blip, 500, keepalive payload limit) silently dropped
+// the report — burned by Ranoza's "could not find empleado_supabase_id" error
+// that never reached client_errors. Two layers now:
+//   1. Queue failed POSTs to localStorage (capped at 50 entries, FIFO).
+//   2. Drain the queue at the START of every new report attempt.
+// Quota errors on the localStorage write are caught — we'd rather lose a
+// pending replay than crash the reporter.
+const _ERR_QUEUE_KEY = 'tx_err_replay_queue'
+const _ERR_QUEUE_MAX = 50
+function _readQueue() {
+  try { return JSON.parse(localStorage.getItem(_ERR_QUEUE_KEY) || '[]') } catch { return [] }
+}
+function _writeQueue(q) {
+  try { localStorage.setItem(_ERR_QUEUE_KEY, JSON.stringify(q.slice(-_ERR_QUEUE_MAX))) } catch {}
+}
+function _enqueueReport(body) {
+  const q = _readQueue()
+  q.push({ body, queued_at: Date.now() })
+  _writeQueue(q)
+}
+async function _drainQueue() {
+  const q = _readQueue()
+  if (!q.length) return
+  // Drain in order. If any send fails, stop and leave the rest queued.
+  const remaining = []
+  let i = 0
+  for (; i < q.length; i++) {
+    try {
+      const r = await fetch('/api/panel?action=report_error', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(q[i].body),
+      })
+      if (!r.ok) { remaining.push(...q.slice(i)); break }
+    } catch {
+      remaining.push(...q.slice(i)); break
+    }
+  }
+  _writeQueue(remaining)
+}
+
 function pushRoute(p) {
   if (!p) return
   if (_routeHistory[_routeHistory.length - 1] === p) return
@@ -256,30 +298,43 @@ function reportClientError(err, optsOrSeverity = 'error') {
     const businessType = (typeof window !== 'undefined' && window.__txBusinessType) || null
     const plan = (typeof window !== 'undefined' && window.__txPlan) || null
 
+    const body = {
+      business_id: businessId,
+      user_id: userId,
+      user_role: userRole,
+      message,
+      stack: (err && err.stack) || null,
+      route: typeof window !== 'undefined' ? window.location.pathname + window.location.search : null,
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      app_version: appVersion,
+      severity,
+      metadata: {
+        platform: 'web',
+        ...(category ? { category } : {}),
+        ...(businessType ? { business_type: businessType } : {}),
+        ...(plan ? { plan } : {}),
+        ...(_routeHistory.length ? { last_routes: _routeHistory.slice() } : {}),
+        ...(extra || {}),
+      },
+    }
+
+    // Drain any previously-queued reports first (fire-and-forget).
+    _drainQueue()
+
+    // POST this report — on ANY failure (network, 5xx, keepalive limit, CORS),
+    // persist to localStorage so the next reporter call replays it. Was the
+    // root cause of "we keep wiring __txReportError but errors never land":
+    // fetch().catch(() => {}) ate every transient failure.
     fetch('/api/panel?action=report_error', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       keepalive: true,
-      body: JSON.stringify({
-        business_id: businessId,
-        user_id: userId,
-        user_role: userRole,
-        message,
-        stack: (err && err.stack) || null,
-        route: typeof window !== 'undefined' ? window.location.pathname + window.location.search : null,
-        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
-        app_version: appVersion,
-        severity,
-        metadata: {
-          platform: 'web',
-          ...(category ? { category } : {}),
-          ...(businessType ? { business_type: businessType } : {}),
-          ...(plan ? { plan } : {}),
-          ...(_routeHistory.length ? { last_routes: _routeHistory.slice() } : {}),
-          ...(extra || {}),
-        },
-      }),
-    }).catch(() => {})
+      body: JSON.stringify(body),
+    }).then((r) => {
+      if (!r.ok) _enqueueReport(body)
+    }).catch(() => {
+      _enqueueReport(body)
+    })
   } catch {}
 }
 
