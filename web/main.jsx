@@ -24,6 +24,7 @@ const TiendaEmpenosList   = React.lazy(() => import('@/landing/TiendaEmpenos').t
 const TiendaEmpenosDetail = React.lazy(() => import('@/landing/TiendaEmpenos').then(m => ({ default: m.TiendaEmpenosDetail })))
 const Agendar             = React.lazy(() => import('@/landing/Agendar'))
 const IndustryPage        = React.lazy(() => import('@/landing/IndustryPage'))
+const SeoLandingPage      = React.lazy(() => import('@/landing/SeoLandingPage'))
 const WorkOrderApprove    = React.lazy(() => import('@/landing/WorkOrderApprove'))
 const Demo                = React.lazy(() => import('@/landing/demos/Demo'))
 const AceptarContador     = React.lazy(() => import('@/landing/AceptarContador'))
@@ -799,6 +800,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
             <Route path="/industrias" element={<Navigate to="/#vertical-features" replace />} />
             <Route path="/industrias/:slug" element={<IndustryPage />} />
+
+            {/* SEO Phase-1 commercial landing pages (2026-05-18) — target top
+                GSC impression-only queries: "pos", "software pos",
+                "facturador gratuito", "alternativa al facturador gratuito".
+                Content in packages/ui/landing/data/seoLandingPages.js. */}
+            <Route path="/sistema-pos"                          element={<SeoLandingPage pageKey="sistema-pos" />} />
+            <Route path="/software-pos"                         element={<SeoLandingPage pageKey="software-pos" />} />
+            <Route path="/alternativa-facturador-gratuito-dgii" element={<SeoLandingPage pageKey="alternativa-facturador-gratuito-dgii" />} />
+            <Route path="/facturador-electronico-dgii"          element={<SeoLandingPage pageKey="facturador-electronico-dgii" />} />
 
             {/* /probar/:vertical — interactive marketing demos. Pure React +
                 seed data, no Supabase. Single dispatcher (Demo.jsx) loads

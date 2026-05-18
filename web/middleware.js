@@ -76,6 +76,84 @@ const INDUSTRY_NAMES_EN = {
   hybrid: 'Hybrid multi-vertical POS',
 };
 
+// SEO Phase-1 landing pages — power FAQPage JSON-LD. Keys = pathname.
+// Curated Q&A (NEVER auto-extracted from body), source lives in
+// packages/ui/landing/data/seoLandingPages.js — this mirror exists only so the
+// middleware (edge runtime, no shared imports) can emit schema.org without
+// pulling the whole landing bundle.
+const SEO_LANDING_FAQS = {
+  '/sistema-pos': [
+    { q: '¿Qué es un sistema POS?',
+      a: 'Un sistema POS es el software con el que tu negocio registra ventas, emite factura, descarga inventario, calcula ITBIS y reporta a DGII. Reemplaza la caja registradora tradicional y se integra con impresora térmica, lector de código de barras y gaveta de dinero.' },
+    { q: '¿Cuánto cuesta un sistema POS en República Dominicana?',
+      a: 'En RD el rango va desde RD$2,490/mes (Terminal X Pro, plan básico de cajero único) hasta RD$15,000/mes en sistemas legacy con cobro por comprobante. Terminal X Pro PLUS (RD$4,490) y Pro MAX (RD$6,990) incluyen e-CF DGII directo sin cobro por factura.' },
+    { q: '¿Necesito un POS para mi negocio si soy pequeño?',
+      a: 'Si emites factura, sí. Después del 15 de mayo de 2026 toda la pequeña y micro empresa debe emitir e-CF según Ley 32-23. El Facturador Gratuito de DGII te resuelve hasta ~150 facturas al mes; arriba de eso, necesitas un POS profesional.' },
+    { q: '¿El POS funciona sin internet?',
+      a: 'Terminal X sí, durante hasta 72 horas. Sigues cobrando, imprimiendo recibos y registrando ventas en local. Cuando vuelve internet, los e-CF se firman y envían a DGII con el indicador de envío diferido (IndicadorEnvioDiferido=1).' },
+    { q: '¿Puedo emitir e-CF directamente desde el POS?',
+      a: 'Sí, Terminal X es Emisor Electrónico certificado DGII (#42483). No necesitas PSFE intermediario. Firmamos tus e-CF con tu certificado Viafirma y los enviamos directo a DGII. Sin cobro por comprobante, sin límite mensual.' },
+    { q: '¿Cuánto tarda en quedar instalado?',
+      a: 'En el plan Pro la configuración la haces tú en menos de 30 minutos. En Pro PLUS y Pro MAX nuestro equipo te configura todo de forma remota: catálogo, NCFs, empleados, comisiones, impresora. Onboarding del mismo día con Pro MAX.' },
+    { q: '¿Cómo migro desde mi POS actual (StarSISA, WilPOS, otro)?',
+      a: 'Importamos tu catálogo de productos, clientes, secuencias de NCF y registro de empleados. Para clientes Pro PLUS y Pro MAX la migración la hace nuestro equipo. Tenemos guías específicas para migrar desde StarSISA, WilPOS y el Facturador Gratuito de DGII.' },
+  ],
+  '/software-pos': [
+    { q: '¿Qué stack usa el software POS de Terminal X?',
+      a: 'React 19 + Vite 5 + Tailwind 4 en frontend. Electron 41 con better-sqlite3-multiple-ciphers (SQLCipher) para escritorio. PWA con Service Worker + IndexedDB para web. Postgres 17 vía Supabase. xml-crypto v6 para firma e-CF.' },
+    { q: '¿Tiene API pública?',
+      a: 'Sí, endpoints autenticados con Supabase JWT en /api/panel y /api/fe. Crea ventas, consulta inventario, lanza webhooks. Para integración profunda con tu ERP/CRM/e-commerce, el equipo Pro MAX arma el connector específico.' },
+    { q: '¿Cómo funciona la sincronización multi-terminal?',
+      a: 'Bidireccional cada 5 minutos + en cada evento de venta, pago o anulación. UUID compartido (supabase_id) en todas las tablas. Last-Write-Wins por updated_at + trigger.' },
+    { q: '¿Dónde se guarda el certificado .p12?',
+      a: 'Solo en local, cifrado at-rest con SQLCipher derivado de tu HWID. Nunca lo subimos a nuestro servidor. La firma e-CF se hace en tu propia máquina con xml-crypto.' },
+    { q: '¿Funciona en Mac, Linux o solo Windows?',
+      a: 'El instalador empaquetado va para Windows. En Mac empaquetamos DMG bajo pedido (Pro MAX). En Linux usamos la PWA web — funciona idéntico en Chrome/Firefox.' },
+    { q: '¿Cómo manejan el modo offline con e-CF?',
+      a: 'Ley 32-23 permite hasta 72 horas de envío diferido (IndicadorEnvioDiferido=1). Terminal X encola el e-CF localmente, sigue imprimiendo factura, y al volver la red firma y envía con el indicador puesto.' },
+    { q: '¿Cómo aseguran el aislamiento entre clientes (multi-tenant)?',
+      a: 'Postgres RLS (Row Level Security) en cada tabla con políticas que filtran por business_id leído del JWT app_metadata. Auditoría completa antes de cada release.' },
+    { q: '¿Hay export de datos si quiero salirme?',
+      a: 'Sí. Cada reporte tiene export CSV. La base SQLite local es tuya. Si te vas, te llevas todo. Sin lock-in.' },
+  ],
+  '/alternativa-facturador-gratuito-dgii': [
+    { q: '¿Por qué dejar el Facturador Gratuito si es gratis?',
+      a: 'Porque deja de ser gratis cuando le sumas las horas de tu personal cargando facturas a mano, llenando 606/607 campo por campo, atendiendo errores manualmente y operando sin contingencia offline. Para 50 facturas al día el costo oculto supera de lejos los RD$490/mes de Terminal X Facturación.' },
+    { q: '¿Pierdo mis secuencias de NCF si migro?',
+      a: 'No. Tu RNC y tus secuencias DGII son tuyas — viven en el portal de DGII. Terminal X continúa la numeración exactamente donde el Gratuito la dejó.' },
+    { q: '¿Cuánto demora la migración?',
+      a: '7 días con migración guiada incluida (planes Pro PLUS y superiores). El equipo de Terminal X migra catálogo, clientes, NCFs, secuencias, certificado Viafirma y entrena a tu cajero.' },
+    { q: '¿Terminal X es Emisor Electrónico Directo o intermediario?',
+      a: 'Directo. Cert DGII #42483. Firmamos los e-CF con tu propio certificado Viafirma y enviamos directo a DGII sin intermediario.' },
+    { q: '¿Cuánto cuesta?',
+      a: 'Plan Facturación desde RD$490/mes, plan Plus a RD$990/mes con todos los e-CF incluidos sin cobro por comprobante. Anual con 15% OFF. 7 días gratis sin tarjeta.' },
+    { q: '¿Y si no me convence, puedo volver al Gratuito?',
+      a: 'Sí. Tu RNC y tus secuencias siguen activas en DGII. Puedes apagar Terminal X cuando quieras. Sin contrato.' },
+    { q: '¿Maneja el formato 606 y 607?',
+      a: 'Sí, exportados de un clic listos para subir al portal de DGII. Sin armarlos a mano en Excel cada mes.' },
+    { q: '¿Funciona si vendo en USD?',
+      a: 'Sí. Multi-moneda DOP + USD con tasa configurable. El Gratuito solo opera en pesos.' },
+  ],
+  '/facturador-electronico-dgii': [
+    { q: '¿Qué es un facturador electrónico DGII?',
+      a: 'Es la herramienta con la que tu negocio emite Comprobantes Fiscales Electrónicos (e-CF) firmados digitalmente y los envía a DGII en línea, cumpliendo Ley 32-23. Reemplaza al NCF impreso en papel.' },
+    { q: '¿Cuál es la diferencia entre un facturador electrónico y un POS?',
+      a: 'El facturador electrónico se enfoca en emitir e-CF. Un POS además registra ventas, descarga inventario, calcula comisiones, imprime recibo térmico y maneja caja chica. Terminal X ofrece ambos.' },
+    { q: '¿Tengo que usar el Facturador Gratuito de DGII?',
+      a: 'No. La Ley 32-23 te obliga a emitir e-CF, no a usar una herramienta específica. Puedes elegir entre el Facturador Gratuito de DGII, un PSFE intermediario o un Emisor Electrónico Directo como Terminal X.' },
+    { q: '¿Terminal X es PSFE o Emisor Directo?',
+      a: 'Emisor Electrónico Directo. Cert DGII #42483. Firmamos con tu propio Viafirma y enviamos directo a DGII sin intermediario.' },
+    { q: '¿Tengo que comprar el certificado Viafirma aparte?',
+      a: 'En planes Plus+ el Viafirma viene incluido (valor RD$2,360/año). En plan Pro o Facturación básico lo gestionas tú con la autoridad certificadora.' },
+    { q: '¿Qué pasa el 15 de mayo de 2026?',
+      a: 'Entra en vigencia obligatoria la Ley 32-23 para pequeñas, micro y no clasificadas. A partir de esa fecha, toda factura emitida sin e-CF queda fuera de norma.' },
+    { q: '¿Qué pasa si se cae internet en plena venta?',
+      a: 'Terminal X imprime y registra la venta en local, encola el e-CF, y al volver internet lo firma y envía con IndicadorEnvioDiferido=1 (envío diferido 72h permitido por DGII).' },
+    { q: '¿Cómo migro desde el Facturador Gratuito?',
+      a: 'En 7 días el equipo de Terminal X migra catálogo, clientes, secuencias y certificado Viafirma sin que tu operación se detenga. Guía en /blog/migrar-facturador-gratuito-dgii.' },
+  ],
+};
+
 // Blog posts — power Article schema. Keys = slug (same in both languages).
 const BLOG_POSTS = {
   'migrar-facturador-gratuito-dgii': {
@@ -260,6 +338,61 @@ const BLOG_POSTS = {
       { q_es: '¿POS para restaurante que emita e-CF automáticamente?', a_es: 'Sí. Terminal X firma y envía el e-CF a DGII al cobrar — el mesero no hace nada extra. Si DGII está caído, encola y reenvía cuando vuelve la red.', q_en: 'Restaurant POS that issues e-CF automatically?', a_en: 'Yes. Terminal X signs and sends the e-CF to DGII at checkout — the server does nothing extra. If DGII is down, it queues and resends when the network is back.' },
     ],
   },
+  // ─── Phase-1 SEO sprint blog posts (2026-05-18) — Spanish-only ───
+  'cuanto-cuesta-un-pos-en-republica-dominicana': {
+    headline_es: '¿Cuánto cuesta un POS en República Dominicana? Precios reales 2026',
+    excerpt_es:  'Software, hardware, Viafirma y soporte. Rango real por vertical, sin promesas infladas.',
+    headline_en: '¿Cuánto cuesta un POS en República Dominicana? Precios reales 2026',
+    excerpt_en:  'Software, hardware, Viafirma y soporte. Rango real por vertical, sin promesas infladas.',
+    datePublished: '2026-05-18',
+    image: '/og-image.png',
+    readMinutes: 9,
+  },
+  'diferencia-pos-y-facturador-gratuito-dgii': {
+    headline_es: 'Diferencia entre un POS y el Facturador Gratuito de DGII (2026)',
+    excerpt_es:  'Uno cumple Ley 32-23 y nada más. El otro lleva la operación completa. Cuándo basta uno y cuándo necesitas el otro.',
+    headline_en: 'Diferencia entre un POS y el Facturador Gratuito de DGII (2026)',
+    excerpt_en:  'Uno cumple Ley 32-23 y nada más. El otro lleva la operación completa. Cuándo basta uno y cuándo necesitas el otro.',
+    datePublished: '2026-05-18',
+    image: '/og-image.png',
+    readMinutes: 7,
+  },
+  'migrar-de-starsisa-a-terminal-x': {
+    headline_es: 'Cómo migrar de StarSISA a Terminal X · Guía paso a paso 2026',
+    excerpt_es:  'Plan de 7 días para mover catálogo, secuencias DGII, comisiones y entrenamiento sin interrumpir la operación.',
+    headline_en: 'Cómo migrar de StarSISA a Terminal X · Guía paso a paso 2026',
+    excerpt_en:  'Plan de 7 días para mover catálogo, secuencias DGII, comisiones y entrenamiento sin interrumpir la operación.',
+    datePublished: '2026-05-18',
+    image: '/og-image.png',
+    readMinutes: 10,
+  },
+  'pos-para-car-wash-en-rd': {
+    headline_es: 'POS para Car Wash en RD · Cola, comisiones y memberships',
+    excerpt_es:  'Lo que un carwash dominicano realmente necesita: cola visual, lavadores asignados, memberships y e-CF DGII directo.',
+    headline_en: 'POS para Car Wash en RD · Cola, comisiones y memberships',
+    excerpt_en:  'Lo que un carwash dominicano realmente necesita: cola visual, lavadores asignados, memberships y e-CF DGII directo.',
+    datePublished: '2026-05-18',
+    image: '/og-image.png',
+    readMinutes: 8,
+  },
+  'que-es-un-emisor-electronico-dgii': {
+    headline_es: '¿Qué es un Emisor Electrónico DGII? Guía completa 2026',
+    excerpt_es:  'Diferencia entre Emisor Directo, PSFE intermediario y Facturador Gratuito. Cuál te conviene según volumen y costo.',
+    headline_en: '¿Qué es un Emisor Electrónico DGII? Guía completa 2026',
+    excerpt_en:  'Diferencia entre Emisor Directo, PSFE intermediario y Facturador Gratuito. Cuál te conviene según volumen y costo.',
+    datePublished: '2026-05-18',
+    image: '/og-image.png',
+    readMinutes: 8,
+  },
+  'precios-pos-rd-2026': {
+    headline_es: 'Precios POS en RD 2026 · Comparación completa por plan y vertical',
+    excerpt_es:  'Cuánto cuesta un POS dominicano en 2026 por vertical y por plan. Terminal X, StarSISA, WilPOS, Indexa lado a lado.',
+    headline_en: 'Precios POS en RD 2026 · Comparación completa por plan y vertical',
+    excerpt_en:  'Cuánto cuesta un POS dominicano en 2026 por vertical y por plan. Terminal X, StarSISA, WilPOS, Indexa lado a lado.',
+    datePublished: '2026-05-18',
+    image: '/og-image.png',
+    readMinutes: 9,
+  },
 };
 
 // Industry slugs — same in both languages (URL path differs: /industrias/SLUG vs /en/industries/SLUG).
@@ -268,16 +401,42 @@ const BLOG_SLUGS = Object.keys(BLOG_POSTS);
 
 // ─── Per-route meta. Spanish-language paths under /, English under /en/. ────
 const ROUTE_META = {
-  // ES — homepage keeps index.html defaults, so no entry.
+  // ES — homepage now also injects a keyword-led title (Sprint B SEO).
+  '/': {
+    lang: 'es',
+    title: 'Sistema POS y Software POS para RD · Terminal X DGII Cert #42483',
+    desc:  'Sistema POS dominicano certificado DGII para carwash, restaurante, tienda, salón, mecánica y concesionario. e-CF directo, modo offline 72h. Desde RD$2,490/mes. Prueba 7 días gratis.',
+  },
   '/pricing': {
     lang: 'es',
-    title: 'Precios · Terminal X — POS y e-CF DGII desde RD$995/mes',
-    desc:  'Planes de Terminal X: Facturación RD$995, Plus RD$1,990, Ilimitado RD$2,990, Pro RD$2,990, Pro PLUS RD$5,490, Pro MAX RD$9,990. 7 días gratis, sin contrato.',
+    title: 'Precios POS y Facturación DGII en RD · Desde RD$490/mes — Terminal X',
+    desc:  'Planes Terminal X: Facturación RD$490, Plus RD$990, Pro RD$2,490, Pro PLUS RD$4,490, Pro MAX RD$6,990. e-CF DGII directo, sin cobro por comprobante. 7 días gratis.',
   },
   '/signup': {
     lang: 'es',
-    title: 'Crear cuenta · Terminal X — 7 días gratis Pro MAX',
-    desc:  'Activa Terminal X en minutos. 7 días gratis del plan Pro MAX con todas las funciones: e-CF DGII, POS, nómina y reportes. Sin tarjeta, sin contrato.',
+    title: 'Probar Terminal X 7 días gratis · POS DGII certificado en RD',
+    desc:  'Activa el sistema POS dominicano en minutos. 7 días gratis Pro MAX con e-CF DGII, inventario, comisiones y nómina. Sin tarjeta. Prueba 7 días gratis.',
+  },
+  // Phase-1 SEO sprint landing pages (2026-05-18).
+  '/sistema-pos': {
+    lang: 'es',
+    title: 'Sistema POS para República Dominicana · Terminal X DGII Cert #42483',
+    desc:  'Sistema POS dominicano certificado DGII para carwash, restaurante, tienda, salón, mecánica y concesionario. e-CF directo, modo offline 72h. Prueba 7 días gratis.',
+  },
+  '/software-pos': {
+    lang: 'es',
+    title: 'Software POS DGII para RD · API, offline, SQLCipher — Terminal X',
+    desc:  'Software POS técnico para RD: API REST, modo offline 72h, SQLCipher en local, sync bidireccional Postgres, e-CF firma local. Evalúa el stack en 7 días gratis.',
+  },
+  '/alternativa-facturador-gratuito-dgii': {
+    lang: 'es',
+    title: 'Alternativa al Facturador Gratuito de DGII · Terminal X desde RD$490/mes',
+    desc:  'Cuando superes las 150 facturas mensuales del Facturador Gratuito DGII, migra a Terminal X: API, offline 72h, formato 606/607, multi-moneda. Desde RD$490/mes.',
+  },
+  '/facturador-electronico-dgii': {
+    lang: 'es',
+    title: 'Facturador Electrónico DGII certificado · Cert #42483 — Terminal X',
+    desc:  'Facturador electrónico DGII (Cert #42483). Emite e-CF E31, E32, E33, E34 y E43 directo a DGII sin PSFE intermediario ni cobro por comprobante. Desde RD$490/mes.',
   },
   '/blog': {
     lang: 'es',
@@ -285,20 +444,20 @@ const ROUTE_META = {
     desc:  'Guías prácticas sobre Ley 32-23, Facturador Gratuito DGII, e-CF, POS para carwash, tiendas y restaurantes en República Dominicana.',
   },
   '/industrias/facturacion': { lang: 'es',
-    title: 'Facturación electrónica DGII · Terminal X (Emisor Electrónico)',
-    desc:  'Reemplaza el Facturador Gratuito DGII. e-CF E31/E32/E33/E34/E43, formatos 606/607, RNC 900K, cola offline 72h y certificado Viafirma incluido.',
+    title: 'POS para Facturación electrónica DGII en RD · Terminal X Emisor Directo',
+    desc:  'Reemplaza el Facturador Gratuito DGII. e-CF E31/E32/E33/E34/E43, formatos 606/607, RNC 900K, cola offline 72h y certificado Viafirma incluido. Desde RD$490/mes.',
   },
   '/industrias/carwash': { lang: 'es',
-    title: 'POS para carwash en RD · Terminal X — cola, comisiones, memberships',
-    desc:  'POS especializado para lavaderos dominicanos: cola visual, asignación de lavadores, comisiones automáticas, memberships y dashboard del dueño en vivo.',
+    title: 'POS para carwash en RD · Terminal X — cola, comisiones y memberships',
+    desc:  'POS para carwash dominicano: cola visual, lavadores asignados, comisiones automáticas, memberships y dashboard del dueño en vivo. Prueba 7 días gratis.',
   },
   '/industrias/tiendas': { lang: 'es',
-    title: 'POS para tiendas, licorerías, colmados y retail · Terminal X',
-    desc:  'Inventario con código de barras, 8 sub-verticales (licorería, farmacia, colmado, supermercado, ferretería, papelería, boutique, otro). e-CF DGII directo.',
+    title: 'POS para tiendas, licorerías y colmados en RD · Terminal X',
+    desc:  'POS para tiendas con código de barras, 8 sub-verticales (licorería, farmacia, colmado, supermercado, ferretería, papelería, boutique). e-CF DGII directo desde RD$2,490/mes.',
   },
   '/industrias/restaurantes': { lang: 'es',
-    title: 'POS para restaurantes en RD · Terminal X — KDS, mesas, propinas',
-    desc:  'POS de servicio para RD: cuentas abiertas por mesa, KDS con cronómetro, modificadores, ruteo cocina/bar, split-bill, propinas y E43 al instante.',
+    title: 'POS para restaurantes en RD · Terminal X — KDS, mesas y propinas',
+    desc:  'POS para restaurante dominicano: mesas abiertas, KDS con cronómetro, modificadores, ruteo cocina/bar, split-bill, propinas Ley 16-92 y e-CF al instante.',
   },
   '/industrias/mecanica': { lang: 'es',
     title: 'POS para talleres y mecánica · Terminal X — órdenes y bahías',
@@ -371,6 +530,32 @@ const ROUTE_META = {
   '/blog/mejor-pos-tienda-colmado-republica-dominicana': { lang: 'es',
     title: 'Mejor POS para tienda y colmado en República Dominicana 2026 · Terminal X',
     desc:  'Inventario código de barras, fiado, ITBIS automático, e-CF directo a DGII. Terminal X con 8 sub-tipos de tienda preconfigurados (licorería, farmacia, colmado, supermercado, ferretería, papelería, boutique).',
+  },
+
+  // ─── Phase-1 SEO sprint blog posts (2026-05-18) ───
+  '/blog/cuanto-cuesta-un-pos-en-republica-dominicana': { lang: 'es',
+    title: '¿Cuánto cuesta un POS en República Dominicana? Precios reales 2026 · Terminal X',
+    desc:  'Software, hardware, certificado Viafirma, soporte e implementación. Rango real por tipo de negocio (carwash, restaurante, tienda, salón, concesionario) sin promesas infladas.',
+  },
+  '/blog/diferencia-pos-y-facturador-gratuito-dgii': { lang: 'es',
+    title: 'Diferencia entre un POS y el Facturador Gratuito de DGII (2026) · Terminal X',
+    desc:  '¿Necesitas POS o solo facturador electrónico? La diferencia real entre el Facturador Gratuito de DGII y un sistema POS profesional como Terminal X en 2026.',
+  },
+  '/blog/migrar-de-starsisa-a-terminal-x': { lang: 'es',
+    title: 'Migrar de StarSISA a Terminal X · Guía paso a paso 2026',
+    desc:  'Cómo migrar de StarSISA a Terminal X sin perder ventas: importación de catálogo, secuencias DGII, comisiones y entrenamiento en una semana. Alternativa StarSISA en RD.',
+  },
+  '/blog/pos-para-car-wash-en-rd': { lang: 'es',
+    title: 'POS para Car Wash en RD · Cola, comisiones y memberships — Terminal X',
+    desc:  'POS especializado para car wash dominicanos: cola visual, asignación de lavadores, comisiones automáticas por servicio, memberships y e-CF DGII directo.',
+  },
+  '/blog/que-es-un-emisor-electronico-dgii': { lang: 'es',
+    title: '¿Qué es un Emisor Electrónico DGII? Guía completa 2026 · Terminal X',
+    desc:  'Qué significa ser Emisor Electrónico Directo en RD, cómo se diferencia de un PSFE intermediario, cuánto cuesta certificarse y qué herramientas cumplen Ley 32-23.',
+  },
+  '/blog/precios-pos-rd-2026': { lang: 'es',
+    title: 'Precios POS en RD 2026 · Comparación completa por plan y vertical — Terminal X',
+    desc:  'Cuánto cuesta un POS dominicano en 2026 por vertical (carwash, restaurante, tienda, salón) y por plan (autoservicio, asistido, ejecutivo dedicado). Sin sorpresas.',
   },
 
   // ─── EN ───
@@ -542,6 +727,16 @@ function getLanguagePair(pathname) {
     const slug = pathname.slice('/industrias/'.length);
     return { es: `/industrias/${slug}`, en: `/en/industries/${slug}` };
   }
+  // Phase-1 SEO sprint pages — Spanish-only for now (EN follows in Phase 2).
+  // Self-pair both hreflang slots so we never emit a 404 alternate.
+  if (
+    pathname === '/sistema-pos' ||
+    pathname === '/software-pos' ||
+    pathname === '/alternativa-facturador-gratuito-dgii' ||
+    pathname === '/facturador-electronico-dgii'
+  ) {
+    return { es: pathname, en: pathname };
+  }
   return null;
 }
 
@@ -582,6 +777,14 @@ function buildBreadcrumb(pathname, meta) {
     items.push({ name: T('Precios', 'Pricing'), url: `${SITE}${pathname}` });
   } else if (pathname === '/signup' || pathname === '/en/signup') {
     items.push({ name: T('Crear cuenta', 'Sign up'), url: `${SITE}${pathname}` });
+  } else if (pathname === '/sistema-pos') {
+    items.push({ name: 'Sistema POS', url: `${SITE}${pathname}` });
+  } else if (pathname === '/software-pos') {
+    items.push({ name: 'Software POS', url: `${SITE}${pathname}` });
+  } else if (pathname === '/alternativa-facturador-gratuito-dgii') {
+    items.push({ name: 'Alternativa al Facturador Gratuito DGII', url: `${SITE}${pathname}` });
+  } else if (pathname === '/facturador-electronico-dgii') {
+    items.push({ name: 'Facturador Electrónico DGII', url: `${SITE}${pathname}` });
   } else {
     return null;
   }
@@ -632,6 +835,21 @@ function buildArticleSchema(pathname, meta) {
 // Only posts that have curated FAQs are eligible — never auto-extracted from
 // body HTML, since hallucinated answers tarnish ranking.
 function buildFAQPageSchema(pathname, meta) {
+  // 1. SEO Phase-1 landing pages (Spanish-only, curated FAQ map above).
+  if (SEO_LANDING_FAQS[pathname]) {
+    const faqs = SEO_LANDING_FAQS[pathname];
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      inLanguage: 'es-DO',
+      mainEntity: faqs.map(qa => ({
+        '@type': 'Question',
+        name: qa.q,
+        acceptedAnswer: { '@type': 'Answer', text: qa.a },
+      })),
+    };
+  }
+  // 2. Blog posts with curated `faq` arrays.
   const isBlogPost = pathname.startsWith('/blog/') || pathname.startsWith('/en/blog/');
   if (!isBlogPost) return null;
   const slug = pathname.split('/').pop();

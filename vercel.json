@@ -27,7 +27,12 @@
     { "source": "/en/industries/pawnshop",         "destination": "/en/industries/prestamos",     "permanent": true },
     { "source": "/en/industries/services",         "destination": "/en/industries/servicios",     "permanent": true },
     { "source": "/en/industries/payroll",          "destination": "/en/industries/empresas",      "permanent": true },
-    { "source": "/en/industries/barber",           "destination": "/en/industries/salon",         "permanent": true }
+    { "source": "/en/industries/barber",           "destination": "/en/industries/salon",         "permanent": true },
+    { "source": "/pos-software",                   "destination": "/software-pos",                "permanent": true },
+    { "source": "/facturador-alternativa",         "destination": "/alternativa-facturador-gratuito-dgii", "permanent": true },
+    { "source": "/pos",                            "destination": "/sistema-pos",                 "permanent": true },
+    { "source": "/facturador",                     "destination": "/facturador-electronico-dgii", "permanent": true },
+    { "source": "/facturador-gratuito",            "destination": "/alternativa-facturador-gratuito-dgii", "permanent": true }
   ],
   "rewrites": [
     { "source": "/fe/autenticacion/api/semilla", "destination": "/api/fe?action=semilla" },

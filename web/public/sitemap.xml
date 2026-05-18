@@ -148,6 +148,50 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/mejor-pos-tienda-colmado-republica-dominicana"/>
   </url>
 
+  <!-- ─── Phase-1 SEO sprint landing pages (2026-05-18) — Spanish-only ─── -->
+  <url><loc>https://terminalxpos.com/sistema-pos</loc> <lastmod>2026-05-18</lastmod><changefreq>weekly</changefreq><priority>0.95</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/sistema-pos"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/sistema-pos"/>
+  </url>
+  <url><loc>https://terminalxpos.com/software-pos</loc> <lastmod>2026-05-18</lastmod><changefreq>weekly</changefreq><priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/software-pos"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/software-pos"/>
+  </url>
+  <url><loc>https://terminalxpos.com/alternativa-facturador-gratuito-dgii</loc> <lastmod>2026-05-18</lastmod><changefreq>weekly</changefreq><priority>0.95</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/alternativa-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/alternativa-facturador-gratuito-dgii"/>
+  </url>
+  <url><loc>https://terminalxpos.com/facturador-electronico-dgii</loc> <lastmod>2026-05-18</lastmod><changefreq>weekly</changefreq><priority>0.95</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/facturador-electronico-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/facturador-electronico-dgii"/>
+  </url>
+
+  <!-- ─── Phase-1 SEO sprint blog posts (2026-05-18) — Spanish-only ─── -->
+  <url><loc>https://terminalxpos.com/blog/cuanto-cuesta-un-pos-en-republica-dominicana</loc> <lastmod>2026-05-18</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/cuanto-cuesta-un-pos-en-republica-dominicana"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/cuanto-cuesta-un-pos-en-republica-dominicana"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/diferencia-pos-y-facturador-gratuito-dgii</loc> <lastmod>2026-05-18</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/diferencia-pos-y-facturador-gratuito-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/diferencia-pos-y-facturador-gratuito-dgii"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/migrar-de-starsisa-a-terminal-x</loc> <lastmod>2026-05-18</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/migrar-de-starsisa-a-terminal-x"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/migrar-de-starsisa-a-terminal-x"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/pos-para-car-wash-en-rd</loc> <lastmod>2026-05-18</lastmod><changefreq>monthly</changefreq><priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/pos-para-car-wash-en-rd"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/pos-para-car-wash-en-rd"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/que-es-un-emisor-electronico-dgii</loc> <lastmod>2026-05-18</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/que-es-un-emisor-electronico-dgii"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/que-es-un-emisor-electronico-dgii"/>
+  </url>
+  <url><loc>https://terminalxpos.com/blog/precios-pos-rd-2026</loc> <lastmod>2026-05-18</lastmod><changefreq>monthly</changefreq><priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/blog/precios-pos-rd-2026"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://terminalxpos.com/blog/precios-pos-rd-2026"/>
+  </url>
+
   <!-- ─── English mirror (secondary market: expat / English-speaking businesses in DR) ─── -->
   <url><loc>https://terminalxpos.com/en</loc>          <lastmod>2026-05-03</lastmod><changefreq>weekly</changefreq><priority>0.95</priority>
     <xhtml:link rel="alternate" hreflang="es-DO" href="https://terminalxpos.com/"/>

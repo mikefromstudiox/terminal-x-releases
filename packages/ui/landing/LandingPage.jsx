@@ -1418,6 +1418,21 @@ export default function LandingPage({ section, forceLang }) {
       {/* Footer — BLACK */}
       <footer className="bg-black border-t border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
+          {/* Recursos row — Phase-1 SEO sprint (2026-05-18) commercial landing
+              pages with keyword anchor text. EN keeps Spanish slugs since the
+              pages are Spanish-only for now; falls back to /pricing. */}
+          {lang !== 'en' && (
+            <div className="border-b border-white/10 pb-10 mb-10">
+              <p className="text-sm font-bold uppercase tracking-wider text-white/50 mb-4">Recursos</p>
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <Link to="/sistema-pos"                          className="text-sm text-white/70 hover:text-white transition-colors">Sistema POS para RD</Link>
+                <Link to="/software-pos"                         className="text-sm text-white/70 hover:text-white transition-colors">Software POS DGII</Link>
+                <Link to="/facturador-electronico-dgii"          className="text-sm text-white/70 hover:text-white transition-colors">Facturador electrónico DGII</Link>
+                <Link to="/alternativa-facturador-gratuito-dgii" className="text-sm text-white/70 hover:text-white transition-colors">Alternativa al Facturador Gratuito DGII</Link>
+                <Link to="/pricing"                              className="text-sm text-white/70 hover:text-white transition-colors">Precios POS RD 2026</Link>
+              </div>
+            </div>
+          )}
           {/* Industrias row — internal linking + anchor-text SEO to vertical pages */}
           <div className="border-b border-white/10 pb-10 mb-10">
             <p className="text-sm font-bold uppercase tracking-wider text-white/50 mb-4">{L('Industrias que servimos en RD', 'Industries we serve in the Dominican Republic')}</p>
