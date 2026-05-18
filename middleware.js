@@ -800,7 +800,15 @@ export default async function middleware(request) {
 
   const headers = new Headers(originResponse.headers);
   headers.set('Content-Security-Policy', csp);
-  headers.set('Cache-Control', 'no-store, must-revalidate');
+  // Standard Cache-Control alone does NOT stop Vercel Edge Cache from
+  // caching middleware-modified HTML. Vercel honors CDN-Cache-Control and
+  // Vercel-CDN-Cache-Control specifically. Without these, the edge caches
+  // the body (with one nonce) while regenerating the CSP header per request
+  // (with a different nonce) — mismatch → strict-dynamic blocks every
+  // script → white screen. Discovered 2026-05-17.
+  headers.set('Cache-Control', 'private, no-store, must-revalidate');
+  headers.set('CDN-Cache-Control', 'no-store');
+  headers.set('Vercel-CDN-Cache-Control', 'no-store');
   headers.delete('content-length');
 
   return new Response(injected, {
