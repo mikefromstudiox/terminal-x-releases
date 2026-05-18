@@ -424,10 +424,33 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
       try { sessionStorage.removeItem('tx_logging_out') } catch {}
     }
 
+    // Safety hatch: if Supabase auth network calls hang (DNS/network/CSP
+    // blocking us silently), force-exit loading after 8s so the user gets
+    // the login form instead of a forever spinner. Also fires
+    // window.__txReportError so we can SEE the hang in /admin Errores —
+    // previously every getSession() hang was invisible. (2026-05-17.)
+    const safetyTimeout = setTimeout(() => {
+      setLoading(prev => {
+        if (prev) {
+          try { window.__txReportError?.(new Error('auth getSession hung > 8s — forcing loading=false'), { severity: 'error', category: 'auth.web.getSession.hang', extra: { route: typeof location !== 'undefined' ? location.pathname : null } }) } catch {}
+          return false
+        }
+        return prev
+      })
+    }, 8000)
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
+      clearTimeout(safetyTimeout)
       setSession(s)
       if (s) fetchBusinessId(s.user.id)
       else { clearLogoutFlag(); setLoading(false) }
+    }).catch(err => {
+      // No .catch previously — a rejected getSession() left loading=true
+      // forever. Now we report and unblock the UI.
+      clearTimeout(safetyTimeout)
+      try { window.__txReportError?.(err, { severity: 'error', category: 'auth.web.getSession.reject' }) } catch {}
+      setError('Error al cargar la sesion. Intenta de nuevo o cierra sesion.')
+      setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
@@ -436,7 +459,7 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
       else { clearLogoutFlag(); setBusinessId(null); setLoading(false) }
     })
 
-    return () => subscription.unsubscribe()
+    return () => { clearTimeout(safetyTimeout); subscription.unsubscribe() }
   }, [])
 
   async function fetchBusinessId(userId) {
