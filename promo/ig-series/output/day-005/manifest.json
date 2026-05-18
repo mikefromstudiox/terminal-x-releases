@@ -1,0 +1,18 @@
+{
+  "day": 5,
+  "slug": "precios-opacos",
+  "topic": "Solo 2 de 6 proveedores principales publican precios en su sitio",
+  "pillar": "INSIDER / COMPARISON",
+  "publishDate": "2026-05-23",
+  "caption": "De los 6 POS dominicanos certificados DGII, solo 2 publican sus precios en la web. El resto te hacen llenar formulario y esperar la llamada.\n\nEso lo descubrimos haciendo el reporte Estado del POS en RD 2026. La opacidad de precios no es accidente — es estrategia para cotizarte alto cuando pareces grande.\n\nPide precios públicos. Si no los tienen, ya sabes por qué.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "slides": [
+    { "type": "hook", "bg": "black", "hero": "2/6", "heroColor": "crimson", "subhero": "PUBLICAN PRECIOS", "promise": "LOS DEMÁS TE COTIZAN" },
+    { "type": "context", "bg": "white", "header": "POR QUÉ IMPORTA?", "body": "Sin precio público, el vendedor te cotiza según tu tamaño. Si parece que puedes pagar más, te cobran más." },
+    { "type": "data", "bg": "black", "number": "33%", "label": "PROVEEDORES CON PRECIO PÚBLICO", "source": "Fuente: Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "contrast", "bg": "split", "topLabel": "2", "topBody": "PRECIO PÚBLICO", "topBg": "black", "bottomLabel": "4", "bottomBody": "TE COTIZAN", "bottomBg": "crimson" },
+    { "type": "bullet", "bg": "white", "header": "QUÉ EXIGIR", "bullets": ["PRECIO POR MES", "COSTO POR E-CF", "USUARIOS INCLUIDOS", "SOPORTE INCLUIDO", "MIGRACIÓN GRATIS", "SIN PERMANENCIA"] },
+    { "type": "context", "bg": "black", "header": "QUÉ HACER?", "body": "Pide precio escrito. Compara plan por plan. No firmes sin saber el costo a 12 meses." },
+    { "type": "quote", "bg": "white", "quote": "El precio público no es marketing. Es respeto al dueño de pyme.", "attribution": "Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "cta", "bg": "crimson", "headline": "PRECIOS CLAROS", "url": "terminalxpos.com/pricing", "whatsapp": "+1 809-828-2971" }
+  ]
+}

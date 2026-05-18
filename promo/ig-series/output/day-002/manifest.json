@@ -1,0 +1,18 @@
+{
+  "day": 2,
+  "slug": "multa-50k",
+  "topic": "RD$50,000 multa mínima por no emitir e-CF",
+  "pillar": "BUYER / PAIN",
+  "publishDate": "2026-05-20",
+  "caption": "RD$50,000. Esa es la multa MÍNIMA por no emitir e-CF según el Código Tributario.\n\nY no es una sola. Cada comprobante mal emitido es una infracción separada. Suman.\n\nEl 15 de mayo venció el plazo. Si todavía no migras, cada día que pasa cuesta.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "slides": [
+    { "type": "hook", "bg": "black", "hero": "RD$50K", "heroColor": "crimson", "subhero": "MULTA MÍNIMA", "promise": "POR NO EMITIR E-CF" },
+    { "type": "context", "bg": "white", "header": "Y SI NO MIGRO?", "body": "La DGII puede multarte hasta 30 salarios mínimos del sector público por cada infracción formal." },
+    { "type": "data", "bg": "black", "number": "30", "label": "SALARIOS MÍNIMOS POR INFRACCIÓN", "source": "Fuente: Código Tributario Dominicano · Art. 257" },
+    { "type": "contrast", "bg": "split", "topLabel": "RD$0", "topBody": "EL CIERRE", "topBg": "black", "bottomLabel": "RD$50K+", "bottomBody": "LA MULTA", "bottomBg": "crimson" },
+    { "type": "bullet", "bg": "white", "header": "6 RAZONES DE MULTA", "bullets": ["NO EMITIR E-CF", "NCF VENCIDO", "606/607 TARDE", "RNC FANTASMA", "E-CF MAL EMITIDO", "REINCIDENCIA"] },
+    { "type": "context", "bg": "black", "header": "ES UNA SOLA?", "body": "No. Cada comprobante mal emitido es una infracción separada. Pueden sumar miles al mes." },
+    { "type": "quote", "bg": "white", "quote": "Una multa no llega sola. Llega en serie.", "attribution": "Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "cta", "bg": "crimson", "headline": "EVITA LA MULTA", "url": "terminalxpos.com/signup", "whatsapp": "+1 809-828-2971" }
+  ]
+}

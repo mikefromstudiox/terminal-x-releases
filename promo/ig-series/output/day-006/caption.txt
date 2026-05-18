@@ -1,0 +1,7 @@
+Si tu sistema actual depende de un PSFE intermediario, cada caída del PSFE = caída de tu caja.
+
+Los PSFE no son Terminal X. Son intermediarios entre tu sistema y DGII. Cuando se caen, tú no puedes facturar. Tu cliente espera. Tu cliente se va.
+
+Terminal X es Emisor Directo. Hablamos a DGII sin intermediarios. Cuando hay outage del PSFE de otros, tu negocio sigue.
+
+#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas

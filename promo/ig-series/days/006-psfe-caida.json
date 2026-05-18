@@ -1,0 +1,18 @@
+{
+  "day": 6,
+  "slug": "psfe-caida",
+  "topic": "Tu PSFE puede caerse — tu negocio no debería",
+  "pillar": "BUYER / PAIN",
+  "publishDate": "2026-05-26",
+  "caption": "Si tu sistema actual depende de un PSFE intermediario, cada caída del PSFE = caída de tu caja.\n\nLos PSFE no son Terminal X. Son intermediarios entre tu sistema y DGII. Cuando se caen, tú no puedes facturar. Tu cliente espera. Tu cliente se va.\n\nTerminal X es Emisor Directo. Hablamos a DGII sin intermediarios. Cuando hay outage del PSFE de otros, tu negocio sigue.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "slides": [
+    { "type": "hook", "bg": "black", "hero": "0", "heroColor": "crimson", "subhero": "PSFE EN EL CAMINO", "promise": "EMISIÓN DIRECTA A DGII" },
+    { "type": "context", "bg": "white", "header": "QUÉ ES UN PSFE?", "body": "Proveedor que firma e-CF EN TU NOMBRE y los envía a DGII. Si se cae, tú no facturas." },
+    { "type": "data", "bg": "black", "number": "41", "label": "PSFE INTERMEDIARIOS DGII", "source": "Fuente: Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "contrast", "bg": "split", "topLabel": "PSFE", "topBody": "DEPENDE DE OTRO", "topBg": "black", "bottomLabel": "DIRECTO", "bottomBody": "TERMINAL X", "bottomBg": "crimson" },
+    { "type": "bullet", "bg": "white", "header": "QUÉ PIERDES SI SE CAE", "bullets": ["VENTAS B2B", "CRÉDITO FISCAL", "CONFIANZA CLIENTE", "FACTURACIÓN TIEMPO", "REPUTACIÓN CON DGII", "CAJA DEL DÍA"] },
+    { "type": "context", "bg": "black", "header": "CÓMO LO SABRÉ?", "body": "Pregunta a tu proveedor: emites directo a DGII o vía PSFE? Si responde PSFE, sabes el riesgo." },
+    { "type": "quote", "bg": "white", "quote": "Cuando tu PSFE se cae, tu cliente no espera. Se va.", "attribution": "Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "cta", "bg": "crimson", "headline": "DIRECTO A DGII", "url": "terminalxpos.com/facturador-electronico-dgii", "whatsapp": "+1 809-828-2971" }
+  ]
+}

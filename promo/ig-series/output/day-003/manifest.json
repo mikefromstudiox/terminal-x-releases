@@ -1,0 +1,18 @@
+{
+  "day": 3,
+  "slug": "primer-ecf-5-pasos",
+  "topic": "5 pasos para emitir tu primer e-CF",
+  "pillar": "HOW-TO",
+  "publishDate": "2026-05-21",
+  "caption": "5 pasos. 30 minutos. Tu primer e-CF emitido hoy mismo.\n\nNo necesitas contador. No necesitas curso. Si sabes cobrar, sabes emitir e-CF.\n\nLa diferencia entre el dueño que migró y el que no es exactamente 30 minutos de configuración inicial.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "slides": [
+    { "type": "hook", "bg": "black", "hero": "5", "heroColor": "crimson", "subhero": "PASOS", "promise": "PARA TU PRIMER E-CF" },
+    { "type": "context", "bg": "white", "header": "POR DÓNDE EMPIEZO?", "body": "No necesitas contador. Solo 5 pasos. Si tienes 30 minutos, terminas hoy mismo." },
+    { "type": "data", "bg": "black", "number": "30", "label": "MINUTOS PROMEDIO", "source": "Fuente: onboarding de nuevos clientes Terminal X · Q1 2026" },
+    { "type": "contrast", "bg": "split", "topLabel": "3H", "topBody": "ANTES (PSFE)", "topBg": "black", "bottomLabel": "30M", "bottomBody": "AHORA (TERMINAL X)", "bottomBg": "crimson" },
+    { "type": "bullet", "bg": "white", "header": "LOS 5 PASOS", "bullets": ["REGISTRA TU RNC", "SOLICITA VIAFIRMA", "CONECTA TU POS", "EMITE E-CF DE PRUEBA", "CONFIRMA CON DGII"] },
+    { "type": "context", "bg": "black", "header": "NECESITO CONTADOR?", "body": "Para emitir, no. Para revisar 606/607 mensuales, sí. El POS lo manejas tú." },
+    { "type": "quote", "bg": "white", "quote": "Si sabes cobrar, sabes emitir e-CF. La diferencia son 5 botones.", "attribution": "Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "cta", "bg": "crimson", "headline": "EMPIEZA HOY", "url": "terminalxpos.com/signup", "whatsapp": "+1 809-828-2971" }
+  ]
+}

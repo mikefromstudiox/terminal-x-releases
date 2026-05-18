@@ -1,0 +1,33 @@
+{
+  "_meta": "Terminal X — EL CIERRE daily series config. Drop this file (+ scripts/ig-carousel.mjs + promo/ig-series/fonts/ + promo/ig-series/days/) into any other Studio X project and rename to fit. The renderer is brand-agnostic — change colors+fonts+seriesName here, content lives in days/*.json.",
+  "seriesName": "EL CIERRE",
+  "seriesTagline": "TERMINAL X · TU POS DOMINICANO · L-V 6PM",
+  "counterFile": "promo/ig-series/COUNTER.txt",
+  "daysDir": "promo/ig-series/days",
+  "outputDir": "promo/ig-series/output",
+  "fontsDir": "promo/ig-series/fonts",
+  "canvas": { "width": 1080, "height": 1350 },
+  "safeArea": 64,
+  "colors": {
+    "black": "#000000",
+    "white": "#FFFFFF",
+    "crimson": "#b3001e"
+  },
+  "fonts": {
+    "hook":   { "file": "Anton-Regular.ttf",            "family": "Anton" },
+    "header": { "file": "BebasNeue-Regular.ttf",        "family": "Bebas Neue" },
+    "body":   { "file": "SpaceGrotesk-Medium.ttf",      "family": "Space Grotesk" },
+    "italic": { "file": "PlayfairDisplay-BlackItalic.ttf","family": "Playfair Display" }
+  },
+  "signature": {
+    "text": "EL CIERRE · #{counter}",
+    "position": "top-left",
+    "padding": 64,
+    "font": "header",
+    "size": 32
+  },
+  "cta": {
+    "url": "terminalxpos.com/estado-pos-rd-2026",
+    "whatsapp": "+1 809-828-2971"
+  }
+}

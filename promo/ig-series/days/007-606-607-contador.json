@@ -1,0 +1,18 @@
+{
+  "day": 7,
+  "slug": "606-607-contador",
+  "topic": "Cómo entregar 606/607 sin pelear con tu contador",
+  "pillar": "HOW-TO",
+  "publishDate": "2026-05-27",
+  "caption": "Cada mes los dueños de pyme pelean lo mismo: el contador pide 606 y 607 antes del día 15. El sistema los tarda en armar. Llegan tarde. Multa.\n\nCon un POS bien configurado, los formatos 606 y 607 se exportan en 30 segundos. Listo para el contador.\n\nLa pelea no es con el contador. Es con el sistema que no fue diseñado para entregar este reporte.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "slides": [
+    { "type": "hook", "bg": "black", "hero": "15", "heroColor": "crimson", "subhero": "DÍA DEL MES", "promise": "ENTREGA 606/607" },
+    { "type": "context", "bg": "white", "header": "DEADLINE 606/607?", "body": "DGII exige los formatos 606 y 607 antes del día 15 de cada mes. Tarde = multa." },
+    { "type": "data", "bg": "black", "number": "30S", "label": "EXPORTAR DESDE TERMINAL X", "source": "Fuente: tiempo medido en producción · clientes Terminal X 2026" },
+    { "type": "contrast", "bg": "split", "topLabel": "3H", "topBody": "A MANO", "topBg": "black", "bottomLabel": "30S", "bottomBody": "TERMINAL X", "bottomBg": "crimson" },
+    { "type": "bullet", "bg": "white", "header": "QUÉ EXPORTAS", "bullets": ["TXT 606 (COMPRAS)", "TXT 607 (VENTAS)", "RNC CONTRIBUYENTES", "NCF EMITIDOS", "ITBIS DESGLOSADO", "TOTAL POR MES"] },
+    { "type": "context", "bg": "black", "header": "CÓMO LO PRENDO?", "body": "Desde el panel Reportes, eliges el mes, le das exportar y envías el TXT a tu contador. Tres clics." },
+    { "type": "quote", "bg": "white", "quote": "La pelea no es con el contador. Es con el sistema mal diseñado.", "attribution": "Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "cta", "bg": "crimson", "headline": "606/607 AUTOMÁTICOS", "url": "terminalxpos.com/signup", "whatsapp": "+1 809-828-2971" }
+  ]
+}

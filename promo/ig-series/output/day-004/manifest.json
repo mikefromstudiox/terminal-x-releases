@@ -1,0 +1,18 @@
+{
+  "day": 4,
+  "slug": "30-salarios-minimos",
+  "topic": "30 salarios mínimos — el costo real de no cumplir Ley 32-23",
+  "pillar": "BUYER / PAIN",
+  "publishDate": "2026-05-22",
+  "caption": "30 salarios mínimos del sector público por cada infracción formal. Eso es lo que dice el Código Tributario Art. 257.\n\nA salario mínimo 2026, son hasta RD$300,000 por infracción. Y son acumulables.\n\nMuchos dueños no migran porque \"todavía no me han multado\". El día que llega la fiscalización, la cuenta ya creció.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "slides": [
+    { "type": "hook", "bg": "black", "hero": "30", "heroColor": "crimson", "subhero": "SALARIOS MÍNIMOS", "promise": "POR INFRACCIÓN FORMAL" },
+    { "type": "context", "bg": "white", "header": "QUÉ SIGNIFICA?", "body": "30 salarios mínimos del sector público = hasta RD$300,000 por cada infracción acumulable." },
+    { "type": "data", "bg": "black", "number": "300K", "label": "RD$ POR INFRACCIÓN", "source": "Fuente: Código Tributario Dominicano · Art. 257 · base SM sector público 2026" },
+    { "type": "contrast", "bg": "split", "topLabel": "RD$0", "topBody": "EL CIERRE", "topBg": "black", "bottomLabel": "RD$300K", "bottomBody": "LA MÁXIMA", "bottomBg": "crimson" },
+    { "type": "bullet", "bg": "white", "header": "DÓNDE TE AGARRAN", "bullets": ["NO MIGRAR", "PAPEL EN B2B", "606 TARDE", "RNC FICTICIO", "E-CF ROTO", "IGNORAR DGII"] },
+    { "type": "context", "bg": "black", "header": "ES UNA VEZ?", "body": "No. Cada infracción cuenta separada. Acumulan rápido." },
+    { "type": "quote", "bg": "white", "quote": "Cumplir con DGII no es opcional. La multa tampoco.", "attribution": "Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "cta", "bg": "crimson", "headline": "EVITA LA SANCIÓN", "url": "terminalxpos.com/signup", "whatsapp": "+1 809-828-2971" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "day": 1,
+  "slug": "47-psfe",
+  "topic": "47 PSFE en RD, solo 6 son POS reales",
+  "pillar": "DATO RD",
+  "publishDate": "2026-05-19",
+  "caption": "47 PSFE autorizados por DGII. Solo 6 son POS reales para el dueño de pyme.\n\nEl resto son firmadores XML que tu contador opera. No es lo mismo.\n\nDato del reporte 'Estado del POS en RD 2026' que acabamos de publicar — link en bio.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "slides": [
+    { "type": "hook", "bg": "black", "hero": "47", "heroColor": "crimson", "subhero": "PSFE EN RD", "promise": "SOLO 6 SON POS REALES" },
+    { "type": "context", "bg": "white", "header": "QUÉ ES UN PSFE?", "body": "Empresa que firma y envía e-CF a DGII en tu nombre. Hay 47 autorizadas al cierre de Q1 2026." },
+    { "type": "data", "bg": "black", "number": "47", "label": "PROVEEDORES AUTORIZADOS POR DGII", "source": "Fuente: DGII, Listado Oficial Q1 2026" },
+    { "type": "contrast", "bg": "split", "topLabel": "47", "topBody": "EN LA LISTA", "topBg": "black", "bottomLabel": "6", "bottomBody": "CON POS REAL", "bottomBg": "crimson" },
+    { "type": "bullet", "bg": "white", "header": "LOS 6 CON POS REAL", "bullets": ["STARSISA", "INDEXA", "WILPOS", "VISUAL PYME", "ALEGRA POS", "TERMINAL X"] },
+    { "type": "context", "bg": "black", "header": "QUÉ SIGNIFICA?", "body": "Los otros 41 firman XML para tu contador. No cobran al mostrador. Si buscas POS, mira los 6." },
+    { "type": "quote", "bg": "white", "quote": "El listado oficial te dice cuántos firman XML. No cuántos te dejan cobrar al mostrador.", "attribution": "Reporte Terminal X — Estado del POS en RD 2026" },
+    { "type": "cta", "bg": "crimson", "headline": "EL FULL REPORTE", "url": "terminalxpos.com/estado-pos-rd-2026", "whatsapp": "+1 809-828-2971" }
+  ]
+}
