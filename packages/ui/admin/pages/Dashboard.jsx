@@ -128,7 +128,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       let token = await refreshToken()
       if (!token) token = getToken()
       const headers = { 'Authorization': `Bearer ${token}` }
-      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp, cronHealthResp, triageResp] = await Promise.all([
+      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp, cronHealthResp, flowDriftResp, triageResp] = await Promise.all([
         fetch('/api/panel?action=stats', { headers }),
         fetch('/api/panel?action=activity_feed', { headers }),
         fetch('/api/panel?action=loyalty-overview', { headers }),
@@ -136,6 +136,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
         fetch('/api/panel?action=errors_list&unresolved=1&limit=50', { headers }),
         fetch('/api/panel?action=deploy_smoke_history&limit=20', { headers }),
         fetch('/api/panel?action=cron_health_history&limit=20', { headers }),
+        fetch('/api/panel?action=flow_drift_history&limit=20', { headers }),
         fetch('/api/panel?action=claude_triage_history&limit=20', { headers }),
       ])
       if (statsResp.ok) setStats(await statsResp.json())
@@ -145,6 +146,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       if (errResp.ok) setRecentErrors(((await errResp.json()).data) || [])
       if (smokeResp.ok) setSmokeHistory(((await smokeResp.json()).data) || [])
       if (cronHealthResp.ok) setCronHealth(((await cronHealthResp.json()).data) || [])
+      if (flowDriftResp.ok) setFlowDrift(((await flowDriftResp.json()).data) || [])
       if (triageResp.ok) {
         const j = await triageResp.json()
         setTriage({ data: j.data || [], stats: j.stats || null })
@@ -398,6 +400,74 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                       expected within: {f.expected_within_hours}h · observed: {f.observed_at || 'never'}
                     </span>
                     {f.detail ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>{f.detail}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )
+      })()}
+
+      {/* Flow Drift — Layer 4 end-to-end user-action assertions. Catches the
+          queue.ticket_id NULL → markPaid silent-skip bug that hit prod 2026-05-17
+          and similar "UI claims success, DB never changed" regressions that the
+          first three layers cannot see. */}
+      {(() => {
+        const latest = flowDrift[0]
+        const failing = latest && latest.failed_count > 0
+        if (!latest) {
+          return (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              className={`rounded-2xl p-4 transition-colors ${cardBase} flex items-center justify-between`}>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <p className={`text-[13px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                  {L('Flow Drift — sin datos aún (cron corre cada 15 min).', 'Flow Drift — no data yet (cron runs every 15 min).')}
+                </p>
+              </div>
+            </motion.div>
+          )
+        }
+        const ts = new Date(latest.ran_at)
+        const minsAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000))
+        const dotColor = failing ? 'bg-red-500' : 'bg-emerald-500'
+        const bgTone = failing
+          ? (isDark ? 'border-red-500/40 bg-red-500/10' : 'border-red-500/40 bg-red-500/5')
+          : ''
+        return (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            className={`rounded-2xl p-5 transition-colors border ${cardBase} ${bgTone}`}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${failing ? 'animate-pulse' : ''}`} />
+                <div>
+                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                    {failing
+                      ? L(`Flow Drift: ${latest.failed_count} escenario${latest.failed_count === 1 ? '' : 's'} fallido${latest.failed_count === 1 ? '' : 's'} de ${latest.total_count}`,
+                            `Flow Drift: ${latest.failed_count} scenario${latest.failed_count === 1 ? '' : 's'} failed of ${latest.total_count}`)
+                      : L(`Flow Drift: ${latest.passed_count}/${latest.total_count} OK`,
+                            `Flow Drift: ${latest.passed_count}/${latest.total_count} OK`)}
+                  </p>
+                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                    {L(`Hace ${minsAgo} min · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`,
+                       `${minsAgo}m ago · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`)}
+                  </p>
+                </div>
+              </div>
+              {failing && (
+                <button onClick={() => setFlowDriftExpanded(s => !s)}
+                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${isDark ? 'border-red-400/40 text-red-300 hover:bg-red-500/10' : 'border-red-500/40 text-red-600 hover:bg-red-500/5'}`}>
+                  {flowDriftExpanded ? L('Ocultar', 'Hide') : L('Ver fallos', 'Show failures')}
+                </button>
+              )}
+            </div>
+            {failing && flowDriftExpanded && Array.isArray(latest.failures) && (
+              <div className="mt-3 space-y-1.5">
+                {latest.failures.map((f, i) => (
+                  <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
+                    <span className="font-bold">{f.scenario}</span>
+                    {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 240)}</span> : null}
+                    {f.observed ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>observed: {String(f.observed).slice(0, 240)}</span> : null}
                   </div>
                 ))}
               </div>
