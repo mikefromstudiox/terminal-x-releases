@@ -4930,14 +4930,17 @@ export function createWebAPI(supabase, businessId) {
           }
           if (parts) {
             for (const p of parts) {
-              const pm = PM_ALIAS[p?.method] || p?.method || 'efectivo'
+              // 2026-05-18 stress audit — lowercase before alias lookup so
+              // 'PEDIDOS_YA' / 'Cash' / mixed-case strings bucket correctly.
+              const key = String(p?.method || '').toLowerCase().trim()
+              const pm = PM_ALIAS[key] || key || 'efectivo'
               const amt = Number(p?.amount || 0)
               result[pm] = (result[pm] || 0) + amt
               // Non-cash channels (credito + pedidos_ya) settle outside the till.
               if (pm !== 'credito' && pm !== 'pedidos_ya') totalCobrado += amt
             }
           } else {
-            const raw = r.payment_method || 'efectivo'
+            const raw = String(r.payment_method || 'efectivo').toLowerCase().trim()
             const pm = PM_ALIAS[raw] || raw
             result[pm] = (result[pm] || 0) + tot
             if (pm !== 'credito' && pm !== 'pedidos_ya') totalCobrado += tot
