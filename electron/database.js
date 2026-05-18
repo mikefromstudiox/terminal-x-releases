@@ -2054,6 +2054,11 @@ function init(userDataPath, options = {}) {
     "ALTER TABLE cuadre_caja ADD COLUMN start_lng REAL",
     "ALTER TABLE cuadre_caja ADD COLUMN start_notes TEXT",
     "ALTER TABLE tickets ADD COLUMN food_truck_location_supabase_id TEXT",
+    // v2.17.9 (2026-05-18) — sync was failing on Ranoza's first desktop install
+    // because notas_credito locally has only the integer FK original_ticket_id
+    // but Supabase has both that and the UUID FK original_ticket_supabase_id.
+    // The local pullUpsertRow threw "no such column: original_ticket_supabase_id".
+    "ALTER TABLE notas_credito ADD COLUMN original_ticket_supabase_id TEXT",
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch (e) {
@@ -3081,6 +3086,34 @@ function init(userDataPath, options = {}) {
     active      INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
+
+  // v2.17.9 (2026-05-18) — Fresh-install schema-parity for empleados.
+  // The main migrations array (~line 310-2057) runs BEFORE this CREATE TABLE,
+  // so empleados-specific ALTER TABLEs there silently fail with
+  // "no such table: empleados" on a clean install. Existing installs got
+  // these columns via the migration loop because empleados existed from
+  // a prior version. Ranoza's first-ever desktop install on 2026-05-18
+  // surfaced the gap — sync.pull.empleados threw "no such column: updated_at"
+  // 1,081 times in 5 minutes. Re-run the column ALTERs here, post-CREATE,
+  // so fresh installs land on the full synced-table schema.
+  const _empleadosPostCreate = [
+    "ALTER TABLE empleados ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
+    "ALTER TABLE empleados ADD COLUMN supabase_id TEXT",
+    "ALTER TABLE empleados ADD COLUMN business_id TEXT",
+    "ALTER TABLE empleados ADD COLUMN role TEXT DEFAULT 'none'",
+    "ALTER TABLE empleados ADD COLUMN comision_pct REAL DEFAULT 0",
+    "ALTER TABLE empleados ADD COLUMN puesto TEXT",
+    "ALTER TABLE empleados ADD COLUMN email TEXT",
+    "ALTER TABLE empleados ADD COLUMN bank_account TEXT",
+    "ALTER TABLE empleados ADD COLUMN tss_id TEXT",
+  ]
+  for (const sql of _empleadosPostCreate) {
+    try { db.exec(sql) } catch (e) {
+      if (!(e.message || '').includes('duplicate column')) {
+        console.warn('[db] empleados post-create migration warning:', e.message)
+      }
+    }
+  }
 
   // v1.9.15 — migrate existing empleados tables off the old CHECK(tipo IN ('lavador','vendedor','cajero'))
   // constraint so new tipos ('servicio', 'hybrid') can be inserted. SQLite can't ALTER a CHECK,
