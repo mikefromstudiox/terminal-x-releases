@@ -1393,7 +1393,7 @@ export function createWebAPI(supabase, businessId) {
               soldMap.set(k, (soldMap.get(k) || 0) + (Number(r.quantity) || 1))
             }
           }
-        } catch {}
+        } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'web.inventoryCount.sold_during_count' }) } catch {} }
         const counted = countedRaw.map(r => {
           const exp = Number(r.expected_qty) || 0
           const sold = soldMap.get(r.inventory_item_supabase_id) || 0
@@ -1773,7 +1773,7 @@ export function createWebAPI(supabase, businessId) {
               return j?.match || null
             }
           }
-        } catch {}
+        } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'web.verifyAuthToken.server_path_failed' }) } catch {} }
         // Fallback — client-side hash + select. Same correctness, weaker isolation.
         const { hashToken } = await import('@terminal-x/services/managerAuthToken')
         const hash = await hashToken(raw)
@@ -4021,7 +4021,7 @@ export function createWebAPI(supabase, businessId) {
           try {
             await supabase.from('ticket_item_modificadores').delete()
               .eq('ticket_item_supabase_id', data.ticket_item_supabase_id).eq('business_id', bid)
-          } catch {}
+          } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'web.ticket_item_modificadores.delete_cascade', extra: { ticket_item_supabase_id: data.ticket_item_supabase_id } }) } catch {} }
         }
         if (data.ticket_item_id) {
           await assertAffected(supabase.from('ticket_items').delete()
@@ -5272,7 +5272,7 @@ export function createWebAPI(supabase, businessId) {
               .eq('supabase_id', data.original_ticket_supabase_id)
               .maybeSingle()
             originalNcfResolved = t?.ncf || null
-          } catch {}
+          } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'web.nota_credito.original_ncf_lookup', extra: { original_ticket_supabase_id: data.original_ticket_supabase_id } }) } catch {} }
         }
         await logActivity({ event_type: 'nota_credito_created', severity: 'critical',
           target_type: 'nota_credito', target_name: data.ncf || 'NC',
@@ -8276,7 +8276,10 @@ export function createWebAPI(supabase, businessId) {
               await supabase.from('collections_log').insert(mirrorPayload)
             } catch (e) {
               if (isLendingNetworkError(e)) {
-                try { await enqueueLendingWrite({ table: 'collections_log', op: 'insert', payload: mirrorPayload, business_id: bid }) } catch {}
+                try { await enqueueLendingWrite({ table: 'collections_log', op: 'insert', payload: mirrorPayload, business_id: bid }) }
+                catch (qErr) { try { window.__txReportError?.(qErr, { severity: 'error', category: 'web.collections_log.enqueue_failed' }) } catch {} }
+              } else {
+                try { window.__txReportError?.(e, { severity: 'error', category: 'web.collections_log.insert_failed' }) } catch {}
               }
             }
             return row

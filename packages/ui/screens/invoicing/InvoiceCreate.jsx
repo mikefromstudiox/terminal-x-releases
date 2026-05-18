@@ -199,7 +199,7 @@ export default function InvoiceCreate() {
       }
       if (q.notes) setNotes(q.notes)
       if (q.sourceQuoteId) setSourceQuoteId(q.sourceQuoteId)
-    } catch {}
+    } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'invoicing.pendingQuote.restore_failed' }) } catch {} }
   }, [])
 
   useEffect(() => {
@@ -246,7 +246,7 @@ export default function InvoiceCreate() {
           setClientForm(prev => ({ ...prev, name: result.name }))
         }
       }
-    } catch {}
+    } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'invoicing.rnc.lookup_failed', extra: { rnc } }) } catch {} }
     setRncLooking(false)
   }, [api, clientForm.name])
 

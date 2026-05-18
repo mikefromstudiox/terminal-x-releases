@@ -87,7 +87,7 @@ export default function InvoiceList() {
       try {
         const s = (await api?.settings?.get?.()) || {}
         if (!cancelled) setBrandingSettings({ invoice_footer: s.invoice_footer || '', logo_url: s.logo_url || s.biz_logo || '' })
-      } catch {}
+      } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'invoiceList.branding_load' }) } catch {} }
     })()
     return () => { cancelled = true }
   }, [api])
@@ -163,7 +163,7 @@ export default function InvoiceList() {
     try {
       const full = await api?.tickets?.byId?.(ticket.id)
       if (full) setDetail(full)
-    } catch {}
+    } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'invoiceList.openDetail.byId_failed', extra: { ticket_id: ticket?.id } }) } catch {} }
     setDetailLoading(false)
   }
 
@@ -205,7 +205,7 @@ export default function InvoiceList() {
       try {
         const client = await api?.clients?.byId?.(t.client_id || t.client_supabase_id)
         phone = (client?.phone || '').toString()
-      } catch {}
+      } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'invoiceList.whatsapp.client_phone_lookup' }) } catch {} }
     }
     if (!phone || !phone.replace(/\D/g, '')) {
       alert(L('Este cliente no tiene teléfono registrado. Edita el cliente y agrega el número antes de enviar por WhatsApp.', 'This client has no phone on file. Edit the client and add a number before sending via WhatsApp.'))

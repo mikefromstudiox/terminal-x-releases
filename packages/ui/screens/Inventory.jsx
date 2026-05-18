@@ -1374,7 +1374,7 @@ export default function Inventory() {
           ? true
           : (s.py_show_breakdown === '1' || s.py_show_breakdown === 1 || s.py_show_breakdown === true)
         setPyCfg({ enabled, commissionPct: Number.isFinite(pct) ? pct : 15, showBreakdown })
-      } catch {}
+      } catch (e) { try { window.__txReportError?.(e, { severity: 'warn', category: 'inventory.pedidos_ya_cfg_load' }) } catch {} }
     })()
     return () => { alive = false }
   }, [api])
