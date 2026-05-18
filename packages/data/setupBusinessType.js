@@ -29,7 +29,8 @@ async function seedSampleMenu(api, typeKey) {
     // 1. Categorias (best-effort; some adapters may not expose the CRUD)
     if (api?.categorias?.create) {
       for (const c of menu.categorias) {
-        try { await api.categorias.create(c) } catch {}
+        try { await api.categorias.create(c) }
+        catch (err) { try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'setupBusinessType.categoria.create', extra: { name: c?.name, typeKey } }) } catch {} }
       }
     }
 
@@ -43,13 +44,14 @@ async function seedSampleMenu(api, typeKey) {
           active: 1,
         })
         if (created?.id) nameToId.set(item.name, created.id)
-      } catch {}
+      } catch (err) { try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'setupBusinessType.service.create', extra: { name: item?.name, typeKey } }) } catch {} }
     }
 
     // 3. Modificadores
     if (api?.modificadores?.create) {
       for (const mod of menu.modificadores) {
-        try { await api.modificadores.create(mod) } catch {}
+        try { await api.modificadores.create(mod) }
+        catch (err) { try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'setupBusinessType.modificador.create', extra: { name: mod?.name, typeKey } }) } catch {} }
       }
     }
     // Note: attachments to specific items deferred — the operator can wire

@@ -92,7 +92,8 @@ export default function OnboardingWizard() {
 
         if (!pinSet) { setStage('pin'); return }
         if (isContabilidad) {
-          try { await api.settings?.update?.({ [STATE_KEY]: 'completed' }) } catch (_) {}
+          try { await api.settings?.update?.({ [STATE_KEY]: 'completed' }) }
+          catch (err) { try { window.__txReportError?.(err, { severity: 'warn', category: 'onboarding.contabilidad.complete_settings_update' }) } catch {} }
           return
         }
         if (stored === 'path_settings')  { setStage('settings');  return }

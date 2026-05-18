@@ -51,12 +51,17 @@ export function createElectronAPI() {
     uploadPhoto: dealershipUploadStub,
     removePhoto: dealershipUploadStub,
     bulkImport:  async (rows) => {
-      if (!Array.isArray(rows) || !rows.length) return { inserted: 0 }
+      if (!Array.isArray(rows) || !rows.length) return { inserted: 0, errors: [] }
       let inserted = 0
-      for (const r of rows) {
-        try { await raw.vehicleInventory.create(r); inserted++ } catch {}
+      const errors = []
+      for (let i = 0; i < rows.length; i++) {
+        try { await raw.vehicleInventory.create(rows[i]); inserted++ }
+        catch (err) {
+          errors.push({ index: i, vin: rows[i]?.vin || null, error: err?.message || String(err) })
+          try { (typeof window !== 'undefined') && window.__txReportError?.(err, { severity: 'warn', category: 'electron.vehicleInventory.bulkImport', extra: { index: i, vin: rows[i]?.vin } }) } catch {}
+        }
       }
-      return { inserted }
+      return { inserted, errors }
     },
   } : raw.vehicleInventory
   const vehicleDocumentsAugmented = raw.vehicleDocuments ? {
