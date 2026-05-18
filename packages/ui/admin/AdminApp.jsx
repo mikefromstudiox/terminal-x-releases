@@ -303,7 +303,14 @@ export default function AdminApp({ supabase }) {
   ]
 
   return (
-    <div className={`min-h-screen flex flex-col md:flex-row ${theme.isDark ? 'bg-black' : 'bg-white'}`}>
+    // 2026-05-18 — `min-h-screen` made the whole flex container grow with the
+    // right-side content (e.g. long client lists), which dragged the sidebar
+    // taller and pushed the ES/EN + Cerrar sesión bottom panel all the way to
+    // the page bottom instead of the viewport bottom. `h-screen` caps the
+    // outer to the viewport so the sidebar stays fixed-height; the right side
+    // scrolls inside its own `flex-1 overflow-y-auto`. Mobile uses flex-col so
+    // the sticky top bar still gets its full row and content below scrolls.
+    <div className={`h-screen flex flex-col md:flex-row ${theme.isDark ? 'bg-black' : 'bg-white'}`}>
       {/* Desktop Sidebar — always black */}
       <div className="hidden md:flex w-[260px] flex-col shrink-0 border-r bg-black border-white/10 relative">
         {/* Subtle ambient red glow top-left of sidebar */}
