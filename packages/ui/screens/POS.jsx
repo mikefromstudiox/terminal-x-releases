@@ -766,32 +766,6 @@ function ServicePOS() {
     setWorkerOverrides({})
     setSalesperson('')
     setSelectedMesa(null)
-    setEditingTicket(null)
-  }
-
-  // Mesas add-on: running-tab edit mode. Set when user reclicks an occupied
-  // mesa — cart is rehydrated from the open ticket and save path becomes
-  // appendItems instead of tickets.create.
-  const [editingTicket, setEditingTicket] = useState(null)
-  async function loadMesaTicket(m) {
-    if (!m?.supabase_id) return
-    // Discard guard: if cart has unsaved items, confirm before clobbering.
-    if (items.length > 0 && !window.confirm(lang === 'es'
-        ? '¿Descartar el carrito actual y abrir la Mesa ' + m.name + '?'
-        : 'Discard current cart and open Table ' + m.name + '?')) return
-    try {
-      const full = await api.tickets.byMesa(m.supabase_id)
-      if (!full?.supabase_id) {
-        flash(lang === 'es' ? 'No hay ticket abierto en esta mesa' : 'No open ticket on this table')
-        return
-      }
-      setItems((full.items || []).map(it => ({ ...it, _cartKey: it._cartKey || it.supabase_id || `tk-${it.id}`, _wasExisting: true })))
-      setSelectedMesa(m)
-      setEditingTicket({ id: full.id, supabase_id: full.supabase_id, doc_number: full.doc_number, mesa: m })
-    } catch (err) {
-      try { window.__txReportError?.(err, { severity: 'warn', category: 'tables_addon.loadMesaTicket', extra: { mesa_supabase_id: m.supabase_id } }) } catch {}
-      flash(lang === 'es' ? 'Error cargando ticket de mesa' : 'Error loading mesa ticket')
-    }
   }
 
   function flash(msg) {
@@ -809,13 +783,6 @@ function ServicePOS() {
         clearForm()
       } else if (e.key === 'F2') {
         e.preventDefault()
-        // In mesas-addon edit mode, F2 is disabled — user must click the
-        // "Actualizar y Cobrar" button which handles the appendItems+navigate
-        // path. Hotkey opening CobrarModal here would create a duplicate ticket.
-        if (editingTicket) {
-          flash(lang === 'es' ? 'Usa el botón Actualizar y Cobrar' : 'Use the Update & Charge button')
-          return
-        }
         if (allOrderItems.length > 0) {
           setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, mesa: tablesAddonOn ? selectedMesa : null })
         }
@@ -899,34 +866,6 @@ function ServicePOS() {
 
   async function handleEncolar() {
     if (allOrderItems.length === 0 && !vehicle.trim()) return
-
-    // Mesas add-on running-tab append path: only append NEW items to an
-    // already-open ticket. Skips ticket creation, queue insert, commissions,
-    // print. Failure paths bubble through tryWrite → window.__txReportError.
-    if (editingTicket) {
-      const newItems = allOrderItems.filter(i => !i._wasExisting)
-      if (newItems.length === 0) {
-        flash(lang === 'es' ? 'Agrega items nuevos antes de actualizar' : 'Add new items before updating')
-        return
-      }
-      try {
-        await api.tickets.appendItems({ ticketSupabaseId: editingTicket.supabase_id, items: newItems })
-        const docNo = editingTicket.doc_number
-        // Re-stamp occupied so the circle stays red until next poll.
-        if (selectedMesa?.supabase_id) {
-          setOccupiedMesaSids(prev => { const n = new Set(prev); n.add(selectedMesa.supabase_id); return n })
-        }
-        clearForm()
-        flash(`${docNo} · ${lang === 'es' ? newItems.length + ' agregado(s)' : newItems.length + ' added'}`)
-      } catch (err) {
-        try { window.__txReportError?.(err, { severity: 'error', category: 'tables_addon.appendItems', extra: { ticket_supabase_id: editingTicket.supabase_id, added_count: newItems.length } }) } catch {}
-        flash(err?.message === 'Ticket ya cerrado'
-          ? (lang === 'es' ? 'Ticket ya cerrado — revisa la Cola' : 'Ticket already closed — check Queue')
-          : (lang === 'es' ? 'Error al agregar items' : 'Error adding items'))
-        if (err?.message === 'Ticket ya cerrado') clearForm()
-      }
-      return
-    }
 
     try {
       const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(allOrderItems, itbisRate)
@@ -1603,25 +1542,9 @@ function ServicePOS() {
                 if (!m) { setSelectedMesa(null); return }
                 setSelectedMesa(prev => prev?.supabase_id === m.supabase_id ? null : m)
               }}
-              onOccupiedClick={(m) => loadMesaTicket(m)}
+              onOccupiedClick={(m) => navigate('/queue', { state: { openCobrarForMesa: m.supabase_id } })}
               lang={lang}
             />
-          )}
-          {tablesAddonOn && editingTicket && (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-[#b3001e]/40 bg-[#b3001e]/10 px-3 py-2">
-              <div className="text-[12px] font-semibold text-[#b3001e]">
-                {lang === 'es'
-                  ? `Editando Mesa ${editingTicket.mesa.name} · ${editingTicket.doc_number || ''}`
-                  : `Editing Table ${editingTicket.mesa.name} · ${editingTicket.doc_number || ''}`}
-              </div>
-              <button
-                type="button"
-                onClick={clearForm}
-                className="text-[11px] font-semibold text-[#b3001e] underline underline-offset-2 hover:opacity-80"
-              >
-                {lang === 'es' ? 'Cancelar' : 'Cancel'}
-              </button>
-            </div>
           )}
 
           {/* Client selector */}
@@ -1907,45 +1830,22 @@ function ServicePOS() {
               className="flex-1 md:flex-none w-full bg-green-500 hover:bg-green-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm md:text-[13px] transition-all active:scale-[0.98] shadow-md shadow-green-500/20 min-h-[44px]"
             >
               <span className="flex items-center justify-center gap-2">
-                <span>{editingTicket
-                  ? (lang === 'es' ? 'Agregar a Mesa' : 'Add to Table')
-                  : t('pos_queue_btn')}</span>
+                <span>{t('pos_queue_btn')}</span>
               </span>
             </button>
 
             <button
-              onClick={async () => {
-                if (allOrderItems.length === 0) return
-                if (editingTicket) {
-                  // Append any new items first, then jump to /queue where the
-                  // existing cobrar flow closes the ticket (no duplicate ticket).
-                  const newItems = allOrderItems.filter(i => !i._wasExisting)
-                  const mesaSid = editingTicket.mesa.supabase_id
-                  try {
-                    if (newItems.length > 0) {
-                      await api.tickets.appendItems({ ticketSupabaseId: editingTicket.supabase_id, items: newItems })
-                    }
-                    clearForm()
-                    navigate('/queue', { state: { openCobrarForMesa: mesaSid } })
-                  } catch (err) {
-                    try { window.__txReportError?.(err, { severity: 'error', category: 'tables_addon.updateAndCobrar', extra: { ticket_supabase_id: editingTicket.supabase_id } }) } catch {}
-                    flash(err?.message === 'Ticket ya cerrado'
-                      ? (lang === 'es' ? 'Ticket ya cerrado — revisa la Cola' : 'Ticket already closed — check Queue')
-                      : (lang === 'es' ? 'Error al actualizar mesa' : 'Error updating table'))
-                    if (err?.message === 'Ticket ya cerrado') clearForm()
-                  }
-                  return
+              onClick={() => {
+                if (allOrderItems.length > 0) {
+                  setMobileCartOpen(false)
+                  setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, mesa: tablesAddonOn ? selectedMesa : null })
                 }
-                setMobileCartOpen(false)
-                setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, mesa: tablesAddonOn ? selectedMesa : null })
               }}
               disabled={allOrderItems.length === 0}
               className="flex-1 md:flex-none w-full bg-[#b3001e] hover:bg-[#0a3868] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm md:text-[13px] transition-all active:scale-[0.98] shadow-md shadow-[#b3001e]/20 flex items-center justify-center gap-2 min-h-[44px]"
             >
-              <span>{editingTicket
-                ? (lang === 'es' ? 'Actualizar y Cobrar' : 'Update & Charge')
-                : (lang === 'es' ? 'Cobrar' : 'Charge')}</span>
-              {!editingTicket && <span className="text-[10px] opacity-60 font-normal hidden md:inline">F2</span>}
+              <span>{lang === 'es' ? 'Cobrar' : 'Charge'}</span>
+              <span className="text-[10px] opacity-60 font-normal hidden md:inline">F2</span>
             </button>
           </div>
         </div>
@@ -2088,26 +1988,6 @@ function RetailPOS() {
   const [mesas, setMesas] = useState([])
   const [selectedMesa, setSelectedMesa] = useState(null)
   const [occupiedMesaSids, setOccupiedMesaSids] = useState(() => new Set())
-  const [editingTicket, setEditingTicket] = useState(null)
-  async function loadMesaTicket(m) {
-    if (!m?.supabase_id) return
-    if (cart.length > 0 && !window.confirm(lang === 'es'
-        ? '¿Descartar el carrito actual y abrir la Mesa ' + m.name + '?'
-        : 'Discard current cart and open Table ' + m.name + '?')) return
-    try {
-      const full = await api.tickets.byMesa(m.supabase_id)
-      if (!full?.supabase_id) {
-        flash(lang === 'es' ? 'No hay ticket abierto en esta mesa' : 'No open ticket on this table')
-        return
-      }
-      setCart((full.items || []).map(it => ({ ...it, _cartKey: it._cartKey || it.supabase_id || `tk-${it.id}`, _wasExisting: true })))
-      setSelectedMesa(m)
-      setEditingTicket({ id: full.id, supabase_id: full.supabase_id, doc_number: full.doc_number, mesa: m })
-    } catch (err) {
-      try { window.__txReportError?.(err, { severity: 'warn', category: 'tables_addon.loadMesaTicket', extra: { mesa_supabase_id: m.supabase_id } }) } catch {}
-      flash(lang === 'es' ? 'Error cargando ticket de mesa' : 'Error loading mesa ticket')
-    }
-  }
   useEffect(() => {
     if (!tablesAddonOn) { setMesas([]); return }
     let cancelled = false
@@ -2481,7 +2361,6 @@ function RetailPOS() {
     setPendingAgeItem(null)
     setHybridConvertMeta(null)
     setSelectedMesa(null)
-    setEditingTicket(null)
     // v2.7.1 — release every lock this device holds (fire-and-forget).
     if (lockingEnabled) {
       const bid = getBusinessId?.()
@@ -3013,10 +2892,6 @@ function RetailPOS() {
       if (e.key === 'F1') { e.preventDefault(); clearForm() }
       else if (e.key === 'F2') {
         e.preventDefault()
-        if (editingTicket) {
-          flash(lang === 'es' ? 'Usa el botón Actualizar y Cobrar' : 'Use the Update & Charge button')
-          return
-        }
         if (cart.length > 0) {
           const items = applyCarniceriaDiscounts(expandCartWithDeposits(cart))
           if (!ensureAgeVerifiedForCart(items)) return
@@ -3561,7 +3436,7 @@ function RetailPOS() {
 
         {/* Mesa add-on circles (non-restaurant verticals only) */}
         {tablesAddonOn && mesas.length > 0 && (
-          <div className="px-4 pt-2 space-y-2">
+          <div className="px-4 pt-2">
             <MesaBar
               mesas={mesas}
               selected={selectedMesa}
@@ -3570,25 +3445,9 @@ function RetailPOS() {
                 if (!m) { setSelectedMesa(null); return }
                 setSelectedMesa(prev => prev?.supabase_id === m.supabase_id ? null : m)
               }}
-              onOccupiedClick={(m) => loadMesaTicket(m)}
+              onOccupiedClick={(m) => navigate('/queue', { state: { openCobrarForMesa: m.supabase_id } })}
               lang={lang}
             />
-            {editingTicket && (
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-[#b3001e]/40 bg-[#b3001e]/10 px-3 py-2">
-                <div className="text-[12px] font-semibold text-[#b3001e]">
-                  {lang === 'es'
-                    ? `Editando Mesa ${editingTicket.mesa.name} · ${editingTicket.doc_number || ''}`
-                    : `Editing Table ${editingTicket.mesa.name} · ${editingTicket.doc_number || ''}`}
-                </div>
-                <button
-                  type="button"
-                  onClick={clearForm}
-                  className="text-[11px] font-semibold text-[#b3001e] underline underline-offset-2 hover:opacity-80"
-                >
-                  {lang === 'es' ? 'Cancelar' : 'Cancel'}
-                </button>
-              </div>
-            )}
           </div>
         )}
 
@@ -3753,48 +3612,27 @@ function RetailPOS() {
             <span>Total</span><span>{fmtRD(total)}</span>
           </div>
           <button
-            onClick={async () => {
-              if (cart.length === 0) return
-              if (editingTicket) {
-                const items = cart.filter(i => !i._wasExisting)
-                const mesaSid = editingTicket.mesa.supabase_id
-                try {
-                  if (items.length > 0) {
-                    const expanded = applyCarniceriaDiscounts(expandCartWithDeposits(items))
-                    if (!ensureAgeVerifiedForCart(expanded)) return
-                    await api.tickets.appendItems({ ticketSupabaseId: editingTicket.supabase_id, items: expanded })
-                  }
-                  clearForm()
-                  navigate('/queue', { state: { openCobrarForMesa: mesaSid } })
-                } catch (err) {
-                  try { window.__txReportError?.(err, { severity: 'error', category: 'tables_addon.updateAndCobrar', extra: { ticket_supabase_id: editingTicket.supabase_id } }) } catch {}
-                  flash(err?.message === 'Ticket ya cerrado'
-                    ? (lang === 'es' ? 'Ticket ya cerrado — revisa la Cola' : 'Ticket already closed — check Queue')
-                    : (lang === 'es' ? 'Error al actualizar mesa' : 'Error updating table'))
-                  if (err?.message === 'Ticket ya cerrado') clearForm()
-                }
-                return
+            onClick={() => {
+              if (cart.length > 0) {
+                const items = applyCarniceriaDiscounts(expandCartWithDeposits(cart))
+                if (!ensureAgeVerifiedForCart(items)) return
+                setMobileCartOpen(false)
+                setCobrarModal({
+                  items, salesperson,
+                  ageVerified,
+                  clientId: selectedClient?.id || null,
+                  clientName: selectedClient?.name || rncName || '',
+                  client: selectedClient || null,
+                  pyMode,
+                  mesa: tablesAddonOn ? selectedMesa : null,
+                })
               }
-              const items = applyCarniceriaDiscounts(expandCartWithDeposits(cart))
-              if (!ensureAgeVerifiedForCart(items)) return
-              setMobileCartOpen(false)
-              setCobrarModal({
-                items, salesperson,
-                ageVerified,
-                clientId: selectedClient?.id || null,
-                clientName: selectedClient?.name || rncName || '',
-                client: selectedClient || null,
-                pyMode,
-                mesa: tablesAddonOn ? selectedMesa : null,
-              })
             }}
             disabled={cart.length === 0}
             className="w-full py-3 bg-[#b3001e] hover:bg-[#8c0017] disabled:opacity-40 text-white font-bold rounded-xl text-[14px] transition-colors flex items-center justify-center gap-2"
           >
             <ShoppingCart size={16} />
-            {editingTicket
-              ? `${lang === 'es' ? 'Actualizar y Cobrar' : 'Update & Charge'} — ${fmtRD(total)}`
-              : `${lang === 'es' ? 'Cobrar' : 'Charge'} — ${fmtRD(total)}`}
+            {lang === 'es' ? 'Cobrar' : 'Charge'} — {fmtRD(total)}
           </button>
         </div>
       </div>

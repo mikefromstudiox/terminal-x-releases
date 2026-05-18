@@ -667,10 +667,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       call('tickets:transferToMesa', { ticket_supabase_id, new_mesa_id }),
     merge: (target_ticket_supabase_id, source_ticket_supabase_id) =>
       call('tickets:merge', { target_ticket_supabase_id, source_ticket_supabase_id }),
-    // Mesas add-on running-tab append flow.
-    byMesa: (mesaSupabaseId) => call('tickets:byMesa', mesaSupabaseId),
-    appendItems: ({ ticketSupabaseId, items } = {}) =>
-      call('tickets:appendItems', { ticket_supabase_id: ticketSupabaseId, items }),
   },
 
   // ── v2.16.3 H4 — Restaurant front-of-house reservations ─────────────────
