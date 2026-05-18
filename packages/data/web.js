@@ -209,6 +209,25 @@ async function tryWrite(fn, label = 'web.write') {
   }
 }
 
+// 2026-05-18 Fix P — Detect PostgREST silent 0-row UPDATE/DELETE under RLS.
+// PostgREST returns `{ error: null, data: [] }` when RLS denies an update by
+// invisibility — caller thinks the mutation succeeded but nothing changed.
+// Wrap a write that uses `.update()/.delete().select()` with this helper:
+//   const r = await assertAffected(supabase.from(t).update(p).eq(...).select('id'), 'web.foo.bar')
+// Throws a labeled error (which then routes through tryWrite → __txReportError)
+// if no rows came back. Caller can pass `{ allowZero: true }` to opt out (rare).
+async function assertAffected(query, label, opts = {}) {
+  const { data, error } = await query
+  if (error) throw error
+  const rows = Array.isArray(data) ? data : (data ? [data] : [])
+  if (rows.length === 0 && !opts.allowZero) {
+    const err = new Error(`silent_zero_row_write: ${label} — RLS denial or row missing`)
+    err.code = 'TX_SILENT_ZERO_ROW'
+    throw err
+  }
+  return rows
+}
+
 // v2.16.5 — H10: generic offline write queue for prestamos. Wraps a lending
 // write so that:
 //   - if the browser reports offline, we enqueue immediately (no network call)
