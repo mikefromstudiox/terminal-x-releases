@@ -1659,7 +1659,10 @@ export function createWebAPI(supabase, businessId) {
           const snap = await supabase.from('staff').select('name, username, role, pin_hash').eq('id', id).eq('business_id', bid).maybeSingle()
           if (snap?.data) before = snap.data
         } catch {}
-        throwSupaError(await supabase.from('staff').update(rest).eq('id', id).eq('business_id', bid))
+        await assertAffected(
+          supabase.from('staff').update(rest).eq('id', id).eq('business_id', bid).select('id'),
+          'web.users.update'
+        )
         if (before) {
           const targetName = `${before.name || ''} (@${before.username || ''})`
           if (rest.pin_hash && rest.pin_hash !== before.pin_hash) {
@@ -2001,7 +2004,10 @@ export function createWebAPI(supabase, businessId) {
         if ('comision_pct' in rest)    patch.comision_pct = rest.comision_pct
         if ('start_date' in rest)      patch.start_date = rest.start_date
         if ('active' in rest)          patch.active = !!rest.active
-        throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(
+          supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid).select('id'),
+          'web.empleados.update'
+        )
       }, 'web.washers.update'),
     },
 
@@ -2423,7 +2429,10 @@ export function createWebAPI(supabase, businessId) {
         const allowed = ['name', 'rnc', 'phone', 'email', 'address', 'credit_limit', 'balance', 'visits', 'total_spent', 'active', 'notes', 'loyalty_points', 'birthday_treat_available', 'allergies', 'preferred_stylist_supabase_id']
         const patch = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
         if ('active' in patch) patch.active = !!patch.active
-        throwSupaError(await supabase.from('clients').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(
+          supabase.from('clients').update(patch).eq('id', id).eq('business_id', bid).select('id'),
+          'web.clients.update'
+        )
       }, 'web.clients.update'),
 
       // v2.4 — Salon: atomic loyalty point mutation. Positive = earn, negative = redeem.
