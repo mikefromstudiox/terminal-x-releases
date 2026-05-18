@@ -1,3 +1,7 @@
+// DEPRECATED 2026-05-17: This file is NOT served. Vercel auto-detects
+// functions at REPO-ROOT /api/ (fix fc5878a). Edit api/panel.js — this
+// file is kept only because some legacy tooling still references it.
+// Will be deleted when all callers (scripts, docs) are repointed.
 import crypto from 'crypto'
 import bcryptjs from 'bcryptjs'
 import { createClient } from '@supabase/supabase-js'
@@ -145,6 +149,13 @@ async function handler(req, res) {
 
   // ── v2.16.25 ANECF web drainer (cron-triggered every 60s) ─────────────────
   if (action === 'anecf-drain')                 return handleAnecfDrain(req, res)
+
+  // ── 2026-05-17 — Deploy smoke (Layer 1, post-incident ff65749). ───────────
+  // cron_deploy_smoke runs categories A/B/C/D/F every 15 min, writes
+  // deploy_smoke_results, escalates failures to client_errors as critical.
+  // deploy_smoke_history is admin-gated read for the Dashboard "Deploy Health" card.
+  if (action === 'cron_deploy_smoke')           return handleCronDeploySmoke(req, res)
+  if (action === 'deploy_smoke_history')        return handleDeploySmokeHistory(req, res)
 
   // ── Layer 3 cron output verifier (every 30 min). Watches downstream
   // side-effects of every scheduled cron so a silent 200-but-no-output
@@ -4849,6 +4860,246 @@ async function handleAnecfDrain(req, res) {
   } catch (err) {
     console.error('[anecf-drain] fatal', err)
     return res.status(500).json({ error: err.message || 'drain_failed' })
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Deploy smoke test — Layer 1 (added 2026-05-17 after ff65749 incident).
+// Replicates scripts/deploy-smoke-test.mjs categories A/B/C/D/F server-side so
+// a Vercel cron can run them every 15 min from inside the deployment itself.
+// ════════════════════════════════════════════════════════════════════════════
+
+const DEPLOY_SMOKE_BASE = 'https://terminalxpos.com'
+const DEPLOY_SMOKE_API_ENDPOINTS = [
+  '/api/panel?action=report_error',
+  '/api/fe?action=semilla',
+  '/api/validate',
+  '/api/rnc',
+  '/api/ecf-sign',
+  '/api/staff-verify-auth',
+  '/api/signup/lead',
+  '/api/dgii-cert-upload',
+]
+const DEPLOY_SMOKE_STATIC = [
+  { path: '/sitemap.xml',   ct: /xml/i,            strict: true  },
+  { path: '/robots.txt',    ct: /text\/plain/i,    strict: true  },
+  { path: '/og-image.png',  ct: /image\/png/i,     strict: true  },
+  { path: '/manifest.json', ct: /(application\/json|application\/manifest|text\/plain)/i, strict: false },
+]
+
+async function _smokeFetch(url, init = {}, ms = 12000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function _runDeploySmoke() {
+  const t0 = Date.now()
+  const results = []
+  const push = (category, check, ok, opts = {}) => {
+    results.push({
+      category, check, ok: !!ok,
+      severity: opts.severity || (ok ? 'info' : 'critical'),
+      expected: opts.expected ?? null,
+      actual: opts.actual ?? null,
+    })
+  }
+
+  // A. SPA bootstrap
+  let bundleUrl = null, bundleBody = null
+  try {
+    const r = await _smokeFetch(`${DEPLOY_SMOKE_BASE}/pos`, { headers: { 'User-Agent': 'tx-cron-smoke/1.0', 'Accept': 'text/html' } })
+    const html = await r.text()
+    push('A', 'GET /pos returns 200', r.status === 200, { expected: 200, actual: r.status })
+    const ct = r.headers.get('content-type') || ''
+    push('A', 'Content-Type is text/html', ct.includes('text/html'), { expected: 'text/html*', actual: ct })
+    const bm = html.match(/<script[^>]+type=["']module["'][^>]+src=["']([^"']*\/assets\/index-[^"']+\.js)["']/i)
+    push('A', 'HTML references /assets/index-*.js', !!bm, { actual: bm ? bm[1] : '(not found)' })
+    if (bm) bundleUrl = new URL(bm[1], DEPLOY_SMOKE_BASE).toString()
+    const litCount = (html.match(/__CSP_NONCE__/g) || []).length
+    push('A', 'HTML has 0 __CSP_NONCE__ literals (middleware ran)', litCount === 0, { expected: 0, actual: litCount })
+    const cspHeader = r.headers.get('content-security-policy') || ''
+    const hn = cspHeader.match(/'nonce-([A-Za-z0-9+/=_-]+)'/)
+    const bn = html.match(/<script[^>]*\snonce=["']([A-Za-z0-9+/=_-]+)["']/i)
+    if (hn && bn) push('A', 'CSP nonce header == body nonce', hn[1] === bn[1], { expected: hn[1], actual: bn[1] })
+    else if (!hn && !bn) push('A', 'CSP nonce header == body nonce', true, { severity: 'warning' })
+    else push('A', 'CSP nonce header == body nonce', false, { actual: `header=${!!hn} body=${!!bn}` })
+    if (bundleUrl) {
+      try {
+        const br = await _smokeFetch(bundleUrl)
+        bundleBody = await br.text()
+        const bct = br.headers.get('content-type') || ''
+        const ok = br.status === 200 && /javascript/i.test(bct) && (bundleBody?.length || 0) > 1024
+        push('A', 'Main bundle 200 + JS content-type + non-empty', ok, { expected: '200 application/javascript >1KB', actual: `${br.status} ${bct} ${bundleBody?.length || 0}B` })
+      } catch (e) {
+        push('A', 'Main bundle reachable', false, { actual: e.message })
+      }
+    }
+  } catch (e) {
+    push('A', 'GET /pos reachable', false, { actual: e.message })
+  }
+
+  // B. Env-var injection
+  if (bundleBody) {
+    const hasUrl = bundleBody.includes('csppjsoirjflumaiipqw.supabase.co')
+    const hasJwt = bundleBody.includes('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9')
+    push('B', 'VITE_SUPABASE_URL baked into bundle', hasUrl, { actual: hasUrl ? 'found' : 'MISSING — spinner bug' })
+    push('B', 'VITE_SUPABASE_ANON_KEY baked into bundle', hasJwt, { actual: hasJwt ? 'found' : 'MISSING — spinner bug' })
+  } else {
+    push('B', 'Bundle available for env-var grep', false, { actual: 'bundle not fetched' })
+  }
+
+  // C. API routing
+  for (const ep of DEPLOY_SMOKE_API_ENDPOINTS) {
+    try {
+      const r = await _smokeFetch(`${DEPLOY_SMOKE_BASE}${ep}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'tx-cron-smoke/1.0' },
+        body: '{}',
+      })
+      const ct = (r.headers.get('content-type') || '').toLowerCase()
+      const txt = (await r.text()).slice(0, 200)
+      const isHtml = ct.includes('text/html') || /^<!doctype html/i.test(txt)
+      const isApi = ct.startsWith('application/json') || ct.startsWith('application/xml') || ct.startsWith('text/xml')
+      const ok = r.status !== 405 && !isHtml && (isApi || r.status >= 400)
+      push('C', `${ep} routed (no 405, no HTML)`, ok, { expected: 'status != 405, ct application/json|xml', actual: `${r.status} ${ct || '(no ct)'}` })
+    } catch (e) {
+      push('C', `${ep} reachable`, false, { actual: e.message })
+    }
+  }
+
+  // D. report_error round-trip
+  const stamp = `cron-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  try {
+    const r = await _smokeFetch(`${DEPLOY_SMOKE_BASE}/api/panel?action=report_error`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'tx-cron-smoke/1.0' },
+      body: JSON.stringify({ message: stamp, severity: 'info', route: '/__smoke_cron', user_agent: 'tx-cron-smoke', metadata: { source: 'tx-cron-smoke' } }),
+    })
+    const ct = (r.headers.get('content-type') || '').toLowerCase()
+    let ok = false, id = null
+    if (r.ok && ct.startsWith('application/json')) {
+      const j = await r.json()
+      ok = !!(j?.ok && j?.id); id = j?.id || null
+    }
+    push('D', 'POST report_error returns ok:true', ok, { actual: id ? `id=${id}` : `${r.status} ${ct}` })
+    if (ok) {
+      // server-side: read directly with service role (no Management API hop needed)
+      try {
+        const sb = getClient()
+        const deadline = Date.now() + 8000
+        let found = false
+        while (Date.now() < deadline && !found) {
+          const { data } = await sb.from('client_errors').select('id').eq('message', stamp).limit(1)
+          if (data && data.length) { found = true; break }
+          await new Promise(r => setTimeout(r, 400))
+        }
+        push('D', 'Row reachable in client_errors', found, { actual: found ? 'found' : 'NOT FOUND in 8s — pipeline broken' })
+      } catch (e) {
+        push('D', 'client_errors read-back', false, { actual: e.message })
+      }
+    }
+  } catch (e) {
+    push('D', 'POST /api/panel?action=report_error', false, { actual: e.message })
+  }
+
+  // F. Static assets
+  for (const a of DEPLOY_SMOKE_STATIC) {
+    try {
+      const r = await _smokeFetch(`${DEPLOY_SMOKE_BASE}${a.path}`)
+      const ct = r.headers.get('content-type') || ''
+      const okStatus = r.status === 200
+      const okCt = a.ct.test(ct)
+      const ok = a.strict ? (okStatus && okCt) : okStatus
+      push('F', `${a.path} → ${a.strict ? '200 + ct' : '200'}`, ok, { expected: a.strict ? `200 ${a.ct}` : '200', actual: `${r.status} ${ct}` })
+    } catch (e) {
+      push('F', `${a.path} reachable`, false, { actual: e.message })
+    }
+  }
+
+  return {
+    results,
+    duration_ms: Date.now() - t0,
+    bundle_hash: bundleUrl ? bundleUrl.split('/').pop() : null,
+  }
+}
+
+async function handleCronDeploySmoke(req, res) {
+  // Auth: Vercel cron OR explicit CRON_SECRET (same pattern as cron_dgii_pull).
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    const { results, duration_ms, bundle_hash } = await _runDeploySmoke()
+    const passed = results.filter(r => r.ok).length
+    const failed = results.length - passed
+    const failures = results.filter(r => !r.ok).map(r => ({
+      category: r.category, check: r.check, expected: r.expected, actual: r.actual, severity: r.severity,
+    }))
+
+    const sb = getClient()
+    // Persist run.
+    await sb.from('deploy_smoke_results').insert({
+      bundle_hash,
+      passed_count: passed,
+      failed_count: failed,
+      total_count: results.length,
+      failures: failures.length ? failures : null,
+      duration_ms,
+      source: 'cron',
+    })
+
+    // Escalate any failure to client_errors as critical so the existing alert
+    // pipeline (Dashboard "Errores recientes" + fireCriticalAlert) catches it.
+    // NOT silent — we explicitly want the Telegram/email fan-out for prod regressions.
+    if (failed > 0) {
+      const msg = `deploy-smoke FAIL ${failed}/${results.length} — ${failures.map(f => `[${f.category}] ${f.check}`).slice(0, 5).join(' | ')}`
+      try {
+        await sb.from('client_errors').insert({
+          business_id: null,
+          message: msg.slice(0, 2000),
+          stack: null,
+          route: '/__smoke',
+          user_agent: 'tx-cron-smoke',
+          severity: 'critical',
+          metadata: { category: 'deploy.smoke.fail', source: 'tx-cron-smoke', failures, duration_ms, bundle_hash },
+        })
+      } catch (e) {
+        // never let the alert step fail the cron — but DO log so we see it in Vercel logs
+        console.error('[cron_deploy_smoke] failed to insert client_errors alert', e?.message)
+      }
+    }
+
+    return res.json({ ok: true, passed, failed, total: results.length, duration_ms, bundle_hash, failures: failures.length ? failures : undefined })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_deploy_smoke' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'smoke_failed' })
+  }
+}
+
+async function handleDeploySmokeHistory(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100)
+    const { data, error } = await auth.supabase
+      .from('deploy_smoke_results')
+      .select('*')
+      .order('ran_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'deploy_smoke_history' }).catch(() => {})
+    return res.status(500).json({ error: err.message })
   }
 }
 

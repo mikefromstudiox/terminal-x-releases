@@ -29,8 +29,14 @@ mkdir(join(DIST, 'lib'))
 mkdir(join(DIST, '.vercel'))
 
 // Top-level API functions (12-fn Vercel cap → consolidated via ?action= switches)
+// NOTE 2026-05-17: panel.js is INTENTIONALLY NOT copied. Per fc5878a, Vercel
+// auto-detects functions at REPO-ROOT /api/ first; the dist-web/api/panel.js
+// copy is silently IGNORED. Edit /api/panel.js (repo root) — NOT web/api/panel.js.
+// Copying it here was the silent cause of the 2026-05-17 dual-file drift that
+// killed Layer 3 cron_health_verifier (returned 400 Unknown action on every
+// tick). web/api/panel.js is now marked DEPRECATED at its top.
 const apiFiles = [
-  'panel.js', 'validate.js', 'rnc.js', 'ecf-sign.js',
+  'validate.js', 'rnc.js', 'ecf-sign.js',
   'dgii-cert-upload.js', 'staff-verify-auth.js', 'fe.js',
 ]
 for (const f of apiFiles) copyFileSync(join(ROOT, 'web/api', f), join(DIST, 'api', f))

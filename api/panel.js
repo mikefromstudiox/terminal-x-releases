@@ -163,6 +163,12 @@ async function handler(req, res) {
   if (action === 'cron_deploy_smoke')           return handleCronDeploySmoke(req, res)
   if (action === 'deploy_smoke_history')        return handleDeploySmokeHistory(req, res)
 
+  // ── Layer 3 cron output verifier (every 30 min). Watches downstream
+  // side-effects of every scheduled cron so a silent 200-but-no-output
+  // failure is caught and escalated to client_errors as critical.
+  if (action === 'cron_health_verifier')        return handleCronHealthVerifier(req, res)
+  if (action === 'cron_health_history')         return handleCronHealthHistory(req, res)
+
   // ── 2026-05-17 — Layer 4 Flow Drift smoke. Walks real user actions end-to-end
   // (encolar→cobrar, mesa addon, void→NCF decrement, mesa occupied parity,
   // /pos route resolution) and asserts DB side-effects match the UI claim.
@@ -176,6 +182,15 @@ async function handler(req, res) {
   // root-cause diagnosis on any new critical incident across layers 1-4.
   if (action === 'cron_claude_triage')          return handleCronClaudeTriage(req, res)
   if (action === 'claude_triage_history')       return handleClaudeTriageHistory(req, res)
+
+  // ── 2026-05-17 — Layer 6 MEGA SMOKE. Comprehensive drift + silent-bug net.
+  // 100+ scenarios across infra, env, schema, RLS, per-vertical flows, mesas,
+  // contabilidad, plan-gating, cron liveness, e-CF. Every failure becomes a
+  // client_errors row with category='mega_smoke.<scenario_id>.fail'; Layer 5
+  // diagnoses it and WhatsApps Mike subject to throttle (max 5 distinct
+  // escalations per run; beyond that rolled into one summary message).
+  if (action === 'cron_mega_smoke')             return handleCronMegaSmoke(req, res)
+  if (action === 'mega_smoke_history')          return handleMegaSmokeHistory(req, res)
 
   // ── v2.16.7 — Lending collections reminders (24h + 2h windows) ──────────
   // Hourly cron tick + license-JWT mark/list paths. WABA is NOT live —
@@ -5095,6 +5110,226 @@ async function handleDeploySmokeHistory(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Layer 3 — Cron output verifier.
+//
+// Layer 1 (cron_deploy_smoke, every 15 min) confirms HTTP endpoints respond.
+// Layer 2 (withReporting) catches thrown exceptions in handlers.
+// Layer 3 (this file, every 30 min) confirms each scheduled cron actually
+// produced its expected DOWNSTREAM side-effect within its expected window.
+//
+// Verifications (one per existing scheduled cron):
+//   V1 /api/digest/daily        → activity_log row event_type='daily_digest_sent' within 26h
+//   V2 cron_dgii_pull           → client_dgii_credentials.last_pull_at within 26h
+//                                  (empty-creds = NOT a failure)
+//   V3 anecf-drain              → anecf_queue.updated_at within 8h, OR empty queue (not a failure)
+//   V4 cron_deploy_smoke        → deploy_smoke_results.ran_at where source='cron' within 30 min
+//
+// On failure: writes one row per failure to client_errors (severity=critical,
+// category=cron.output.missing) so the existing fireCriticalAlert pipeline fires.
+// Always writes one row per RUN to cron_health_runs (success/fail counts).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _CRON_HEALTH_SPEC = [
+  {
+    cron_path: '/api/digest/daily',
+    expected_within_hours: 26,
+    schedule: '0 13 * * *',
+    side_effect: 'activity_log event_type=daily_digest_sent',
+    async check(sb) {
+      const { data, error } = await sb.from('activity_log')
+        .select('created_at')
+        .eq('event_type', 'daily_digest_sent')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (error) return { ok: false, observed_at: null, detail: `query_error: ${error.message}` }
+      const observed_at = data?.created_at || null
+      if (!observed_at) return { ok: false, observed_at: null, detail: 'no daily_digest_sent activity_log row ever' }
+      const ageH = (Date.now() - new Date(observed_at).getTime()) / 3600000
+      return { ok: ageH <= 26, observed_at, detail: `last digest ${ageH.toFixed(1)}h ago (expect ≤26h)` }
+    },
+  },
+  {
+    cron_path: '/api/panel?action=cron_dgii_pull',
+    expected_within_hours: 26,
+    schedule: '0 7 * * *',
+    side_effect: 'client_dgii_credentials.last_pull_at',
+    async check(sb) {
+      const { count: credCount } = await sb.from('client_dgii_credentials')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'active')
+      if (!credCount) return { ok: true, observed_at: null, detail: 'no active DGII credentials — nothing to pull' }
+      const { data, error } = await sb.from('client_dgii_credentials')
+        .select('last_pull_at')
+        .eq('status', 'active')
+        .order('last_pull_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle()
+      if (error) return { ok: false, observed_at: null, detail: `query_error: ${error.message}` }
+      const observed_at = data?.last_pull_at || null
+      if (!observed_at) return { ok: false, observed_at: null, detail: `${credCount} active creds but no last_pull_at on any` }
+      const ageH = (Date.now() - new Date(observed_at).getTime()) / 3600000
+      return { ok: ageH <= 26, observed_at, detail: `last pull ${ageH.toFixed(1)}h ago across ${credCount} active creds` }
+    },
+  },
+  {
+    cron_path: '/api/panel?action=anecf-drain',
+    expected_within_hours: 8,
+    schedule: '0 */6 * * *',
+    side_effect: 'anecf_queue.updated_at OR empty queue',
+    async check(sb) {
+      const { count: totalRows } = await sb.from('anecf_queue')
+        .select('id', { count: 'exact', head: true })
+      if (!totalRows) return { ok: true, observed_at: null, detail: 'anecf_queue empty — nothing to drain' }
+      const { data, error } = await sb.from('anecf_queue')
+        .select('updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (error) return { ok: false, observed_at: null, detail: `query_error: ${error.message}` }
+      const observed_at = data?.updated_at || null
+      if (!observed_at) return { ok: false, observed_at: null, detail: `${totalRows} queue rows but no updated_at` }
+      const ageH = (Date.now() - new Date(observed_at).getTime()) / 3600000
+      return { ok: ageH <= 8, observed_at, detail: `last drain activity ${ageH.toFixed(1)}h ago (${totalRows} queue rows)` }
+    },
+  },
+  {
+    cron_path: '/api/panel?action=cron_deploy_smoke',
+    expected_within_hours: 0.5,  // 30 min
+    schedule: '*/15 * * * *',
+    side_effect: 'deploy_smoke_results.ran_at source=cron',
+    async check(sb) {
+      const { data, error } = await sb.from('deploy_smoke_results')
+        .select('ran_at')
+        .eq('source', 'cron')
+        .order('ran_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (error) return { ok: false, observed_at: null, detail: `query_error: ${error.message}` }
+      const observed_at = data?.ran_at || null
+      if (!observed_at) return { ok: false, observed_at: null, detail: 'no cron-source smoke result ever — Layer 1 may not be deployed' }
+      const ageMin = (Date.now() - new Date(observed_at).getTime()) / 60000
+      return { ok: ageMin <= 30, observed_at, detail: `last smoke ${ageMin.toFixed(1)}min ago (expect ≤30min)` }
+    },
+  },
+]
+
+async function handleCronHealthVerifier(req, res) {
+  // Same auth as cron_dgii_pull: Vercel cron header OR CRON_SECRET bearer.
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  const t0 = Date.now()
+  const verifier_run_at = new Date().toISOString()
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } })
+
+    const results = []
+    for (const spec of _CRON_HEALTH_SPEC) {
+      try {
+        const out = await spec.check(sb)
+        results.push({
+          cron_path: spec.cron_path,
+          expected_within_hours: spec.expected_within_hours,
+          ok: !!out.ok,
+          observed_at: out.observed_at,
+          detail: out.detail || '',
+        })
+      } catch (e) {
+        results.push({
+          cron_path: spec.cron_path,
+          expected_within_hours: spec.expected_within_hours,
+          ok: false,
+          observed_at: null,
+          detail: `verifier_threw: ${e?.message || String(e)}`,
+        })
+      }
+    }
+
+    const passed = results.filter(r => r.ok).length
+    const failed = results.length - passed
+    const failures = results.filter(r => !r.ok).map(r => ({
+      cron_path: r.cron_path,
+      expected_within_hours: r.expected_within_hours,
+      observed_at: r.observed_at,
+      detail: r.detail,
+    }))
+
+    // One row per RUN to cron_health_runs (lightweight, no flood).
+    await sb.from('cron_health_runs').insert({
+      total_checks: results.length,
+      passed_count: passed,
+      failed_count: failed,
+      failures: failures.length ? failures : null,
+      duration_ms: Date.now() - t0,
+    })
+
+    // Fan failures to client_errors as critical so the existing alert pipeline
+    // (Dashboard "Errores recientes" + fireCriticalAlert) triggers. Never let
+    // an alert failure abort the verifier.
+    for (const f of failures) {
+      try {
+        await sb.from('client_errors').insert({
+          business_id: null,
+          message: `Cron output missing: ${f.cron_path} last observed ${f.observed_at || 'never'}; expected within ${f.expected_within_hours}h`.slice(0, 2000),
+          stack: null,
+          route: '/__cron_health',
+          user_agent: 'tx-cron-health-verifier',
+          severity: 'critical',
+          metadata: {
+            category: 'cron.output.missing',
+            cron_path: f.cron_path,
+            expected_within_hours: f.expected_within_hours,
+            observed_at: f.observed_at,
+            detail: f.detail,
+            verifier_run_at,
+          },
+        })
+      } catch (e) {
+        console.error('[cron_health_verifier] failed to insert client_errors row', e?.message)
+      }
+    }
+
+    return res.json({
+      ok: true,
+      ran_at: verifier_run_at,
+      total: results.length,
+      passed,
+      failed,
+      duration_ms: Date.now() - t0,
+      results,
+    })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_health_verifier' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'verifier_failed' })
+  }
+}
+
+async function handleCronHealthHistory(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100)
+    const { data, error } = await auth.supabase
+      .from('cron_health_runs')
+      .select('*')
+      .order('ran_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_health_history' }).catch(() => {})
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2026-05-17 — Layer 4 Flow Drift smoke handlers
 // ─────────────────────────────────────────────────────────────────────────────
 // Imports the harness as an ES module and runs it server-side. Same auth +
@@ -5539,6 +5774,147 @@ async function handleClaudeTriageHistory(req, res) {
     })
   } catch (err) {
     reportServerError(err, { route: '/api/panel', action: 'claude_triage_history' }).catch(() => {})
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-05-17 — Layer 6 MEGA SMOKE handlers.
+//
+// Runs the comprehensive scenario suite from web/lib/mega-smoke-runner.js
+// every 15 min. Dedupes failures within a single run by category. Throttles
+// WhatsApp escalations to 5 distinct categories per run (beyond that rolled
+// into one summary message). Each fail also writes a client_errors row so
+// the existing Layer 5 (cron_claude_triage) RCA pipeline kicks in.
+const _MEGA_SMOKE_WHATSAPP_CAP = 5
+
+async function handleCronMegaSmoke(req, res) {
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    const { runMegaSmoke } = await import('../lib/mega-smoke-runner.js')
+    const base = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://terminalxpos.com'
+    const result = await runMegaSmoke({
+      sb: getClient(),
+      base,
+      pgToken: process.env.SUPABASE_ACCESS_TOKEN || null,
+      vercelToken: null,  // cron has no Vercel API token — env.* scenarios self-skip
+    })
+
+    const { results, total, passed, failed, skipped, duration_ms } = result
+    const sb = getClient()
+
+    // Dedupe failures by category within this run.
+    const failingRows = results.filter(r => !r.ok && !r.skip)
+    const byCategory = new Map()
+    for (const r of failingRows) {
+      const arr = byCategory.get(r.category) || []
+      arr.push(r)
+      byCategory.set(r.category, arr)
+    }
+
+    const failuresPersisted = failingRows.map(r => ({
+      id: r.id, category: r.category, name: r.name,
+      observed: r.observed, expected: r.expected, detail: r.detail,
+    }))
+
+    // Throttle WhatsApp: one client_errors row per UNIQUE scenario id (so
+    // Layer 5 fans out as expected), but cap WhatsApp escalations at 5/run.
+    let waSent = 0
+    const waSentIds = []
+    let waRolledUp = 0
+    for (const r of failingRows) {
+      const category = `mega_smoke.${r.id}.fail`
+      const escalateToCritical = waSent < _MEGA_SMOKE_WHATSAPP_CAP
+      try {
+        await sb.from('client_errors').insert({
+          business_id: null,
+          message: `[mega_smoke] ${r.id}: ${(r.observed || r.detail || r.name || '').slice(0, 500)}`,
+          stack: null,
+          route: '/__mega_smoke',
+          user_agent: 'tx-cron-mega-smoke',
+          severity: escalateToCritical ? 'critical' : 'warning',
+          metadata: {
+            category,
+            scenario_id: r.id, scenario_name: r.name, scenario_category: r.category,
+            expected: r.expected, observed: r.observed, detail: r.detail,
+            throttled: !escalateToCritical,
+            source: 'tx-cron-mega-smoke',
+          },
+        })
+        if (escalateToCritical) { waSent++; waSentIds.push(r.id) }
+        else waRolledUp++
+      } catch (e) {
+        console.error('[cron_mega_smoke] client_errors insert failed', e?.message)
+      }
+    }
+
+    // If we rolled-up, write a single summary critical with the count so Mike
+    // gets one WhatsApp ("...and N more") rather than silence.
+    if (waRolledUp > 0) {
+      try {
+        await sb.from('client_errors').insert({
+          business_id: null,
+          message: `[mega_smoke] +${waRolledUp} more failures throttled this run (cap=${_MEGA_SMOKE_WHATSAPP_CAP}). Total fail=${failed}/${total}. See mega_smoke_runs for full list.`.slice(0, 2000),
+          route: '/__mega_smoke',
+          user_agent: 'tx-cron-mega-smoke',
+          severity: 'critical',
+          metadata: {
+            category: 'mega_smoke.summary.throttled',
+            throttled_count: waRolledUp,
+            cap: _MEGA_SMOKE_WHATSAPP_CAP,
+            sent_ids: waSentIds,
+            source: 'tx-cron-mega-smoke',
+          },
+        })
+      } catch (e) {
+        console.error('[cron_mega_smoke] summary insert failed', e?.message)
+      }
+    }
+
+    // Run-level audit row.
+    await sb.from('mega_smoke_runs').insert({
+      source: 'cron',
+      total_count: total,
+      passed_count: passed,
+      failed_count: failed,
+      duration_ms,
+      failures: failuresPersisted.length ? failuresPersisted : null,
+      whatsapp_sent_count: waSent,
+      whatsapp_summary: waRolledUp > 0 ? { rolled_up: waRolledUp, sent_ids: waSentIds } : null,
+    })
+
+    return res.json({
+      ok: true,
+      total, passed, failed, skipped,
+      duration_ms,
+      whatsapp_sent: waSent, whatsapp_rolled_up: waRolledUp,
+    })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_mega_smoke' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'mega_smoke_failed' })
+  }
+}
+
+async function handleMegaSmokeHistory(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100)
+    const { data, error } = await auth.supabase
+      .from('mega_smoke_runs')
+      .select('*')
+      .order('ran_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return res.json({ data: data || [] })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'mega_smoke_history' }).catch(() => {})
     return res.status(500).json({ error: err.message })
   }
 }
