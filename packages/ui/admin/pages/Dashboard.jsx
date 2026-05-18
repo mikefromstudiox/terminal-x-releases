@@ -70,6 +70,11 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   const [loyalty, setLoyalty] = useState(null)
   const [recentErrors, setRecentErrors] = useState([])
   const [errorsLoading, setErrorsLoading] = useState(false)
+  // 2026-05-17 — Deploy Health (Layer 1, post-ff65749 incident). Surfaces the
+  // most recent /api/panel?action=cron_deploy_smoke run + history. Red banner
+  // on any failure; click expands the failing checks.
+  const [smokeHistory, setSmokeHistory] = useState([])
+  const [smokeExpanded, setSmokeExpanded] = useState(false)
   const [showResolvedErrors, setShowResolvedErrors] = useState(false)
   const [catFilter, setCatFilter] = useState(null) // null | category string
   const [tierFilter, setTierFilter] = useState(null)   // null | 'gold' | 'silver' | 'bronze'
@@ -111,18 +116,20 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       let token = await refreshToken()
       if (!token) token = getToken()
       const headers = { 'Authorization': `Bearer ${token}` }
-      const [statsResp, feedResp, loyaltyResp, digestResp, errResp] = await Promise.all([
+      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp] = await Promise.all([
         fetch('/api/panel?action=stats', { headers }),
         fetch('/api/panel?action=activity_feed', { headers }),
         fetch('/api/panel?action=loyalty-overview', { headers }),
         fetch('/api/panel?action=digest-health', { headers }),
         fetch('/api/panel?action=errors_list&unresolved=1&limit=50', { headers }),
+        fetch('/api/panel?action=deploy_smoke_history&limit=20', { headers }),
       ])
       if (statsResp.ok) setStats(await statsResp.json())
       if (feedResp.ok) { const f = await feedResp.json(); setFeed(f.data || []) }
       if (loyaltyResp.ok) setLoyalty(await loyaltyResp.json())
       if (digestResp.ok) setDigest(await digestResp.json())
       if (errResp.ok) setRecentErrors(((await errResp.json()).data) || [])
+      if (smokeResp.ok) setSmokeHistory(((await smokeResp.json()).data) || [])
     } catch (e) {
       try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dashboard.tick' }) } catch {} console.error('Dashboard load:', e) }
     setLoading(false)
@@ -242,6 +249,73 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
           {L('Vista general de Terminal X', 'Terminal X Overview')}
         </p>
       </motion.div>
+
+      {/* Deploy Health — Layer 1 post-ff65749 incident surfacing. Catches the
+          exact silent-failure classes that took prod down for 6h on 2026-05-17. */}
+      {(() => {
+        const latest = smokeHistory[0]
+        const failing = latest && latest.failed_count > 0
+        if (!latest) {
+          return (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              className={`rounded-2xl p-4 transition-colors ${cardBase} flex items-center justify-between`}>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <p className={`text-[13px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                  {L('Deploy Health — sin datos aún (cron corre cada 15 min).', 'Deploy Health — no data yet (cron runs every 15 min).')}
+                </p>
+              </div>
+            </motion.div>
+          )
+        }
+        const ts = new Date(latest.ran_at)
+        const minsAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000))
+        const dotColor = failing ? 'bg-red-500' : 'bg-emerald-500'
+        const bgTone = failing
+          ? (isDark ? 'border-red-500/40 bg-red-500/10' : 'border-red-500/40 bg-red-500/5')
+          : ''
+        return (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            className={`rounded-2xl p-5 transition-colors border ${cardBase} ${bgTone}`}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${failing ? 'animate-pulse' : ''}`} />
+                <div>
+                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                    {failing
+                      ? L(`Deploy Health: ${latest.failed_count} fallo${latest.failed_count === 1 ? '' : 's'} de ${latest.total_count}`,
+                            `Deploy Health: ${latest.failed_count} failure${latest.failed_count === 1 ? '' : 's'} of ${latest.total_count}`)
+                      : L(`Deploy Health: ${latest.passed_count}/${latest.total_count} OK`,
+                            `Deploy Health: ${latest.passed_count}/${latest.total_count} OK`)}
+                  </p>
+                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                    {L(`Hace ${minsAgo} min · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`,
+                       `${minsAgo}m ago · ${latest.duration_ms || 0}ms · ${latest.source || 'cron'}`)}
+                    {latest.bundle_hash ? ` · ${latest.bundle_hash.slice(0, 24)}` : ''}
+                  </p>
+                </div>
+              </div>
+              {failing && (
+                <button onClick={() => setSmokeExpanded(s => !s)}
+                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${isDark ? 'border-red-400/40 text-red-300 hover:bg-red-500/10' : 'border-red-500/40 text-red-600 hover:bg-red-500/5'}`}>
+                  {smokeExpanded ? L('Ocultar', 'Hide') : L('Ver fallos', 'Show failures')}
+                </button>
+              )}
+            </div>
+            {failing && smokeExpanded && Array.isArray(latest.failures) && (
+              <div className="mt-3 space-y-1.5">
+                {latest.failures.map((f, i) => (
+                  <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 ${f.severity === 'warning' ? 'border-amber-400' : 'border-red-500'}`}>
+                    <span className="font-bold">[{f.category}]</span> {f.check}
+                    {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 200)}</span> : null}
+                    {f.actual ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>actual: {String(f.actual).slice(0, 200)}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )
+      })()}
 
       {/* Stat cards */}
       <motion.div
