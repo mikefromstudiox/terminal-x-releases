@@ -381,14 +381,7 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
   // crash that white-screened every user without a supabase client on first
   // render. (Discovered 2026-05-17 after the middleware fix exposed the
   // bundle-level bug that CSP-blocked scripts had been hiding.)
-  //
-  // useMemo with empty deps so the React.lazy() promise is created exactly
-  // once per mount. Without it, every render produces a NEW lazy component
-  // → Suspense never resolves → infinite spinner.
-  const DataProvider = useMemo(
-    () => React.lazy(() => import('@/context/DataContext').then(m => ({ default: m.DataProvider }))),
-    [],
-  )
+  const DataProvider = React.lazy(() => import('@/context/DataContext').then(m => ({ default: m.DataProvider })))
   const [session, setSession]       = useState(null)
   const [businessId, setBusinessId] = useState(null)
   const [loading, setLoading]       = useState(true)
