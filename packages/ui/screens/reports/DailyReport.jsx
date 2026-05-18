@@ -680,6 +680,20 @@ export default function DailyReport() {
         await printClientReceipt(ticketData)
         flash(lang === 'es' ? 'Factura reimpresa ✓' : 'Invoice reprinted ✓')
       }
+      // 2026-05-18 Fix M — audit-log the reprint (theft vector: cashier prints
+      // duplicate receipts to "lose" cash). Severity=info since reprints are
+      // legitimate most of the time; admin can grep for unusual frequency.
+      try {
+        await api.activity?.record?.({
+          event_type: 'receipt_reprint', severity: 'info',
+          target_type: 'ticket', target_id: String(t.id || ''),
+          target_name: t.ticketNo || t.docNo || `#${t.id}`,
+          amount: Number(t.total) || 0,
+          metadata: { kind, ncf: t.ncf || null, client: t.client || null },
+        })
+      } catch (_logErr) {
+        try { (typeof window !== 'undefined') && window.__txReportError?.(_logErr, { severity: 'warn', category: 'dailyreport.reprint.audit_log', extra: { ticket_id: t.id, kind } }) } catch {}
+      }
     } catch (e) {
       try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dailyreport.if' }) } catch {}
       flash(lang === 'es' ? 'Error al reimprimir' : 'Reprint error')
