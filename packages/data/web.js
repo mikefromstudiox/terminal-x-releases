@@ -892,7 +892,7 @@ export function createWebAPI(supabase, businessId) {
         }
         if ('active' in data) payload.active = !!data.active
         if (data.id) {
-          throwSupaError(await supabase.from('empleados').update(payload).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('empleados').update(payload).eq('id', data.id).eq('business_id', bid).select('id'), 'web.admin.saveLavador.update')
           return { id: data.id }
         }
         const row = throwSupaError(await supabase.from('empleados').insert({ ...payload, supabase_id: crypto.randomUUID(), business_id: bid, role: 'none', active: true }).select('id').single())
@@ -900,7 +900,7 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.admin.saveLavador'),
 
       deleteLavador: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.admin.deleteLavador')
       }, 'web.admin.deleteLavador'),
 
       getVendedores: () => tryOr(async () => {
@@ -917,7 +917,7 @@ export function createWebAPI(supabase, businessId) {
         }
         if ('active' in data) payload.active = !!data.active
         if (data.id) {
-          throwSupaError(await supabase.from('empleados').update(payload).eq('id', data.id).eq('business_id', bid))
+          await assertAffected(supabase.from('empleados').update(payload).eq('id', data.id).eq('business_id', bid).select('id'), 'web.admin.saveVendedor.update')
           return { id: data.id }
         }
         const row = throwSupaError(await supabase.from('empleados').insert({ ...payload, supabase_id: crypto.randomUUID(), business_id: bid, role: 'none', active: true }).select('id').single())
@@ -925,7 +925,7 @@ export function createWebAPI(supabase, businessId) {
       }, 'web.admin.saveVendedor'),
 
       deleteVendedor: ({ id }) => tryWrite(async () => {
-        throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.admin.deleteVendedor')
       }, 'web.admin.deleteVendedor'),
 
       getServicios: () => tryOr(async () => {
@@ -2044,7 +2044,7 @@ export function createWebAPI(supabase, businessId) {
         if ('comision_pct' in rest)   patch.comision_pct = rest.comision_pct
         if ('phone' in rest)          patch.phone = rest.phone
         if ('active' in rest)         patch.active = !!rest.active
-        throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.sellers.update')
       }, 'web.sellers.update'),
     },
 
@@ -2119,12 +2119,12 @@ export function createWebAPI(supabase, businessId) {
             if (scErr) console.error('[salary_changes auto-log]', scErr.message || scErr)
           }
         }
-        throwSupaError(await supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('empleados').update(patch).eq('id', id).eq('business_id', bid).select('id'), 'web.empleados.update.v2')
       }, 'web.empleados.update'),
 
       delete: (id) => tryWrite(async () => {
         await requireOwnerOrManager('empleados:delete')
-        throwSupaError(await supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('empleados').update({ active: false }).eq('id', id).eq('business_id', bid).select('id'), 'web.empleados.delete')
       }, 'web.empleados.delete'),
 
       // Mirror of electron hard-delete: try to remove outright, fall back to
