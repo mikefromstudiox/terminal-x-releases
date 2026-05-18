@@ -81,6 +81,58 @@ const STATUS = {
 }
 
 
+// ── Mesa add-on bar (2026-05-17) ──────────────────────────────────────────────
+// Pure-presentation row of small circular buttons. Crimson when selected,
+// slate when occupied-by-someone-else, white-border when free. Click toggles
+// selection. Parent owns the `selected` state and the `mesas` array.
+function MesaBar({ mesas, selected, occupiedSids, onSelect, lang }) {
+  if (!mesas || mesas.length === 0) return null
+  return (
+    <div>
+      <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1.5">
+        {lang === 'es' ? 'Mesa' : 'Table'}
+      </label>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {mesas.map(m => {
+          const isSelected = selected?.supabase_id === m.supabase_id
+          const isOccupied = !isSelected && occupiedSids?.has?.(m.supabase_id)
+          const base = 'w-8 h-8 rounded-full text-[11px] font-bold flex items-center justify-center transition-colors border'
+          const cls = isSelected
+            ? 'bg-[#b3001e] text-white border-[#b3001e]'
+            : isOccupied
+              ? 'bg-slate-200 dark:bg-white/20 text-slate-600 dark:text-white/80 border-slate-300 dark:border-white/30'
+              : 'bg-transparent text-slate-500 dark:text-white/60 border-slate-300 dark:border-white/20 hover:border-[#b3001e]/50 hover:text-[#b3001e]'
+          const title = isOccupied
+            ? (lang === 'es' ? `Mesa ${m.name} — Ocupada` : `Table ${m.name} — Occupied`)
+            : (lang === 'es' ? `Mesa ${m.name}` : `Table ${m.name}`)
+          return (
+            <button
+              key={m.supabase_id || m.id}
+              type="button"
+              onClick={() => onSelect(m)}
+              title={title}
+              aria-pressed={isSelected}
+              className={`${base} ${cls}`}
+            >
+              {m.name}
+            </button>
+          )
+        })}
+        {selected && (
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="text-[10px] font-semibold text-slate-400 dark:text-white/40 hover:text-[#b3001e] underline underline-offset-2 ml-1"
+            title={lang === 'es' ? 'Quitar mesa' : 'Clear table'}
+          >
+            {lang === 'es' ? 'Quitar' : 'Clear'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Skeleton loader ───────────────────────────────────────────────────────────
 
 function GridSkeleton({ cols }) {
@@ -442,7 +494,8 @@ function ServicePOS() {
   const printerApi = usePrinterAPI()
   const { t, lang } = useLang()
   const { collapsed } = useLayout()
-  const { businessType } = useBusinessType()
+  const { businessType, isRestaurant, isHybrid, hasFeature: bizHas } = useBusinessType()
+  const { hasFeature: planHas } = usePlan()
   const { user } = useAuth()
   const navigate = useNavigate()
   // v2.16.2 (Fix 1) — read route state for membership-purchase preload
@@ -644,6 +697,57 @@ function ServicePOS() {
   const { subtotal, itbis, ley, total } = calcTotals(allOrderItems, itbisRate)
   const gridCols = collapsed ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
 
+  // ── Mesas add-on (2026-05-17) ───────────────────────────────────────────
+  // Lightweight table-tag for non-restaurant verticals. Plan-gated at PLUS+
+  // and owner-toggleable via Mi Empresa. Restaurant + hybrid keep their full
+  // mesas screen — the add-on stays hidden in those verticals.
+  const tablesAddonOn = planHas('tables_addon') && bizHas('tables_addon') && !isRestaurant && !isHybrid
+  const [mesas, setMesas] = useState([])          // [{ id, supabase_id, name, status }]
+  const [selectedMesa, setSelectedMesa] = useState(null)
+  const [occupiedMesaSids, setOccupiedMesaSids] = useState(() => new Set())
+  useEffect(() => {
+    if (!tablesAddonOn) { setMesas([]); return }
+    let cancelled = false
+    async function load() {
+      try {
+        const rows = await api?.mesas?.list?.() || []
+        if (cancelled) return
+        const active = rows.filter(m => m && m.active !== false)
+        // Numeric-aware sort so 1,2,10 instead of 1,10,2.
+        active.sort((a, b) => {
+          const an = Number(a.name); const bn = Number(b.name)
+          if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn
+          return String(a.name || '').localeCompare(String(b.name || ''))
+        })
+        setMesas(active)
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'tables_addon.load' }) } catch {}
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [tablesAddonOn, api])
+
+  // Poll open mesa-tickets every 8s to surface occupied state.
+  useEffect(() => {
+    if (!tablesAddonOn) return
+    let cancelled = false
+    async function tick() {
+      try {
+        const rows = await api?.queue?.active?.() || []
+        if (cancelled) return
+        const occ = new Set()
+        for (const r of rows) {
+          if (r?.mesa_supabase_id) occ.add(r.mesa_supabase_id)
+        }
+        setOccupiedMesaSids(occ)
+      } catch {}
+    }
+    tick()
+    const h = setInterval(tick, 8000)
+    return () => { cancelled = true; clearInterval(h) }
+  }, [tablesAddonOn, api])
+
   // Mobile cart visibility
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const cartRef = useRef(null)
@@ -660,6 +764,7 @@ function ServicePOS() {
     setWorkers([])
     setWorkerOverrides({})
     setSalesperson('')
+    setSelectedMesa(null)
   }
 
   function flash(msg) {
@@ -678,7 +783,7 @@ function ServicePOS() {
       } else if (e.key === 'F2') {
         e.preventDefault()
         if (allOrderItems.length > 0) {
-          setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
+          setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, mesa: tablesAddonOn ? selectedMesa : null })
         }
       } else if (e.key === 'F3') {
         e.preventDefault()
@@ -796,6 +901,10 @@ function ServicePOS() {
         // client_supabase_id + client_name snapshot or balance never updates.
         client_supabase_id: selectedClient?.supabase_id || null,
         client_name:       selectedClient?.name || null,
+        // 2026-05-17 — Mesas add-on tag. Supabase has only mesa_supabase_id;
+        // desktop has both. Send both so either backend stamps the ticket.
+        mesa_id:           tablesAddonOn ? (selectedMesa?.id || null) : null,
+        mesa_supabase_id:  tablesAddonOn ? (selectedMesa?.supabase_id || null) : null,
         washer_ids:        workers.map(w => w.id),
         washer_commission_overrides: washerOverrides,
         seller_id:         salesperson || null,
@@ -874,6 +983,9 @@ function ServicePOS() {
       const result = await api.tickets.create({
         vehicle_plate:    pending.vehicle,
         client_id:        pending.clientId || null,
+        // 2026-05-17 — Mesas add-on tag carried from cart selection.
+        mesa_id:          tablesAddonOn ? (pending.mesa?.id || null) : null,
+        mesa_supabase_id: tablesAddonOn ? (pending.mesa?.supabase_id || null) : null,
         // v2.16.10 — required for web. CobrarModal sets these in onConfirm payload.
         client_supabase_id: paymentData.clientSupabaseId || pending.client?.supabase_id || null,
         // v2.17.5 — persist buyer name + RNC on the ticket row. CobrarModal
@@ -1414,6 +1526,20 @@ function ServicePOS() {
 
         <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
 
+          {/* Mesa add-on circles (non-restaurant verticals only) */}
+          {tablesAddonOn && mesas.length > 0 && (
+            <MesaBar
+              mesas={mesas}
+              selected={selectedMesa}
+              occupiedSids={occupiedMesaSids}
+              onSelect={(m) => {
+                if (!m) { setSelectedMesa(null); return }
+                setSelectedMesa(prev => prev?.supabase_id === m.supabase_id ? null : m)
+              }}
+              lang={lang}
+            />
+          )}
+
           {/* Client selector */}
           <div>
             <label className="block text-[10px] font-bold text-slate-400 dark:text-white/40 uppercase tracking-wider mb-1.5">
@@ -1705,7 +1831,7 @@ function ServicePOS() {
               onClick={() => {
                 if (allOrderItems.length > 0) {
                   setMobileCartOpen(false)
-                  setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null })
+                  setCobrarModal({ vehicle, items: allOrderItems, workers, workerOverrides, salesperson, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, mesa: tablesAddonOn ? selectedMesa : null })
                 }
               }}
               disabled={allOrderItems.length === 0}
@@ -1773,7 +1899,7 @@ function RetailPOS() {
   const { collapsed } = useLayout()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { businessType, isRetail, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria, hasFeature: hasBizFeature } = useBusinessType()
+  const { businessType, isRetail, isHybrid, isMechanic, isDealership, isLicoreria, licoreriaConfig, isCarniceria, isRestaurant, hasFeature: hasBizFeature } = useBusinessType()
   // v2.11 — Tienda subtype feature gates. `hasBizFeature()` returns the
   // effective feature state honoring the tienda_subtype preset + any owner
   // override. Falls back to legacy isLicoreria behavior for un-migrated tenants.
@@ -1849,6 +1975,48 @@ function RetailPOS() {
   const [toast, setToast] = useState(null)
   const [cobrarModal, setCobrarModal] = useState(null)
   const [tab, setTab] = useState('products')  // 'products' | 'services'
+
+  // ── Mesas add-on (2026-05-17) ───────────────────────────────────────────
+  const tablesAddonOn = hasFeature('tables_addon') && hasBizFeature('tables_addon') && !isRestaurant && !isHybrid
+  const [mesas, setMesas] = useState([])
+  const [selectedMesa, setSelectedMesa] = useState(null)
+  const [occupiedMesaSids, setOccupiedMesaSids] = useState(() => new Set())
+  useEffect(() => {
+    if (!tablesAddonOn) { setMesas([]); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await api?.mesas?.list?.() || []
+        if (cancelled) return
+        const active = rows.filter(m => m && m.active !== false)
+        active.sort((a, b) => {
+          const an = Number(a.name); const bn = Number(b.name)
+          if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn
+          return String(a.name || '').localeCompare(String(b.name || ''))
+        })
+        setMesas(active)
+      } catch (err) {
+        try { window.__txReportError?.(err, { severity: 'warn', category: 'tables_addon.load' }) } catch {}
+      }
+    })()
+    return () => { cancelled = true }
+  }, [tablesAddonOn, api])
+  useEffect(() => {
+    if (!tablesAddonOn) return
+    let cancelled = false
+    async function tick() {
+      try {
+        const rows = await api?.queue?.active?.() || []
+        if (cancelled) return
+        const occ = new Set()
+        for (const r of rows) if (r?.mesa_supabase_id) occ.add(r.mesa_supabase_id)
+        setOccupiedMesaSids(occ)
+      } catch {}
+    }
+    tick()
+    const h = setInterval(tick, 8000)
+    return () => { cancelled = true; clearInterval(h) }
+  }, [tablesAddonOn, api])
   // v2.16.10 — Ofertas (bundle promos). Pro PLUS+ only. Live list of active
   // bundles, refreshed on mount and after each ticket close.
   const ofertasEnabled = hasFeature('ofertas')
@@ -2185,6 +2353,7 @@ function RetailPOS() {
     setAgeVerified(null)
     setPendingAgeItem(null)
     setHybridConvertMeta(null)
+    setSelectedMesa(null)
     // v2.7.1 — release every lock this device holds (fire-and-forget).
     if (lockingEnabled) {
       const bid = getBusinessId?.()
@@ -2719,7 +2888,7 @@ function RetailPOS() {
         if (cart.length > 0) {
           const items = applyCarniceriaDiscounts(expandCartWithDeposits(cart))
           if (!ensureAgeVerifiedForCart(items)) return
-          setCobrarModal({ items, ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson, pyMode })
+          setCobrarModal({ items, ageVerified, clientId: selectedClient?.id || null, clientName: selectedClient?.name || rncName || '', client: selectedClient || null, salesperson, pyMode, mesa: tablesAddonOn ? selectedMesa : null })
         }
       }
       else if (e.key === 'F4') { e.preventDefault(); searchRef.current?.focus() }
@@ -2745,6 +2914,9 @@ function RetailPOS() {
       const result = await api.tickets.create({
         vehicle_plate:    null,
         client_id:        pending.clientId || null,
+        // 2026-05-17 — Mesas add-on tag.
+        mesa_id:          tablesAddonOn ? (pending.mesa?.id || null) : null,
+        mesa_supabase_id: tablesAddonOn ? (pending.mesa?.supabase_id || null) : null,
         // v2.16.10 — required for web (audit 2026-04-30 confirmed every prior
         // Ranoza ticket landed orphaned because we sent client_id only).
         client_supabase_id: paymentData.clientSupabaseId || pending.client?.supabase_id || null,
@@ -3255,6 +3427,22 @@ function RetailPOS() {
           )}
         </div>
 
+        {/* Mesa add-on circles (non-restaurant verticals only) */}
+        {tablesAddonOn && mesas.length > 0 && (
+          <div className="px-4 pt-2">
+            <MesaBar
+              mesas={mesas}
+              selected={selectedMesa}
+              occupiedSids={occupiedMesaSids}
+              onSelect={(m) => {
+                if (!m) { setSelectedMesa(null); return }
+                setSelectedMesa(prev => prev?.supabase_id === m.supabase_id ? null : m)
+              }}
+              lang={lang}
+            />
+          </div>
+        )}
+
         {/* Cart items */}
         <div className="flex-1 overflow-y-auto px-4 py-2">
           {cart.length === 0 ? (
@@ -3428,6 +3616,7 @@ function RetailPOS() {
                   clientName: selectedClient?.name || rncName || '',
                   client: selectedClient || null,
                   pyMode,
+                  mesa: tablesAddonOn ? selectedMesa : null,
                 })
               }
             }}
