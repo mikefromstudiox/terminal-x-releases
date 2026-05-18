@@ -293,7 +293,19 @@ export default function CreditNotes() {
       const data = {
         ncf:                assignedNCF,
         client_id:          factLookup?.client_id || null,
+        client_supabase_id: factLookup?.client_supabase_id || null,
         original_ticket_id: factLookup?.id || null,
+        // v2.16.31 follow-up — thread the original ticket's supabase_id so the
+        // reverse-lookup chain (notas_credito.original_ticket_supabase_id →
+        // tickets.supabase_id → tickets.ncf) resolves on every cloud read,
+        // not just on rows that happen to share an INTEGER PK with the local
+        // SQLite mirror. The receipt builder's MODIFICA NCF line + the XML's
+        // <NCFModificado> field both depend on this resolving correctly when
+        // a credit note is reprinted from a fresh device.
+        original_ticket_supabase_id: factLookup?.supabase_id || null,
+        // The original NCF goes into the comentario tail so a desktop reprint
+        // can recover it even if the FK row hasn't synced yet — XML signing
+        // already used factLookup?.ncf above as referencia.ncfModificado.
         motivo,
         amount:             montoNum,
         itbis_revertido:    itbisRev,

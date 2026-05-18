@@ -1554,6 +1554,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           cantidad: s.qty || 1,
           indicadorBienoServicio: s.inventory_item_id ? '1' : '2',
           unidadMedida: s.inventory_item_id ? '43' : '43',
+          // v2.16.31 follow-up — pass through aplica_itbis so ecf.js can emit
+          // IndicadorFacturacion=4 + MontoExento on lines flagged exempt at
+          // the catalog level (services.aplica_itbis=0). Without this thread,
+          // exempt lines silently get tagged as 18% and DGII totals diverge
+          // from the printed receipt's [EXENTO ITBIS] markers.
+          aplica_itbis: s.aplica_itbis != null
+            ? (Number(s.aplica_itbis) ? 1 : 0)
+            : 1,
         })),
         fechaVencimiento,
         referencia: currentType?.requiresReferencia ? {

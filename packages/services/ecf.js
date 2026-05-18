@@ -199,11 +199,21 @@ function buildComprador(comprador) {
 
 // IndicadorFacturacion: '1'=18% ITBIS, '2'=16% ITBIS, '3'=0% export, '4'=exento
 // IndicadorBienoServicio: '1'=bien, '2'=servicio, '3'=bien y servicio, '4'=otros
+//
+// v2.16.31 follow-up — per-line EXENTO emission. When the item is flagged
+// `aplica_itbis === 0 / false`, force IndicadorFacturacion='4' so DGII totals
+// (MontoExento) can be reconciled at the totals block. Explicit
+// `indicadorFacturacion` on the item still wins (E46 exports / E45 zero-rate).
+function resolveIndicadorFacturacion(item) {
+  if (item.indicadorFacturacion) return String(item.indicadorFacturacion)
+  if (item.aplica_itbis === 0 || item.aplica_itbis === false) return '4'
+  return '1'
+}
 function buildItems(items) {
   return {
     Item: items.map((item, idx) => ({
       NumeroLinea:            String(idx + 1),
-      IndicadorFacturacion:   item.indicadorFacturacion   || '1',
+      IndicadorFacturacion:   resolveIndicadorFacturacion(item),
       NombreItem:             item.nombre,
       IndicadorBienoServicio: item.indicadorBienoServicio || '2',
       CantidadItem:           String(item.cantidad        || 1),
@@ -214,6 +224,27 @@ function buildItems(items) {
       PrecioUnitarioItem:     Number(item.precio).toFixed(4),
       MontoItem:              (Number(item.precio) * Number(item.cantidad || 1)).toFixed(2),
     })),
+  }
+}
+
+// Derive exempt vs. gravado18 line subtotals from a raw items[] array.
+// Returns null when every line is taxable (caller skips the split logic and
+// the legacy 18%-only Totales shape stays in play).
+function deriveExemptSplit(items) {
+  if (!Array.isArray(items) || !items.length) return null
+  let exempt = 0
+  let gravado = 0
+  let hasExempt = false
+  for (const it of items) {
+    const isExempt = it.aplica_itbis === 0 || it.aplica_itbis === false || String(it.indicadorFacturacion) === '4'
+    const line = (Number(it.precio) || 0) * (Number(it.cantidad) || 1)
+    if (isExempt) { exempt += line; hasExempt = true }
+    else          { gravado += line }
+  }
+  if (!hasExempt) return null
+  return {
+    exento:  Math.round(exempt * 100) / 100,
+    gravado: Math.round(gravado * 100) / 100,
   }
 }
 
@@ -278,6 +309,32 @@ function buildOtraMoneda(om) {
   }
 }
 
+// v2.16.31 follow-up — enrich totales with per-line exempt split when the
+// items mix taxable + exempt lines, so buildTotales18 emits MontoExento +
+// MontoGravadoI1 (instead of the legacy flat-18%-only shape). Pure function:
+// returns the original totales unchanged when every line is taxable.
+function withExemptSplit(totales, items) {
+  const split = deriveExemptSplit(items)
+  if (!split) return totales
+  // Caller-provided gravado18/exento always win — never clobber an explicit
+  // split that was already computed upstream (Facturación tier H2/H3 path).
+  const hasExplicit = totales && (totales.gravado18 != null || totales.exento != null)
+  if (hasExplicit) return totales
+  const itbisFactor = Number(totales?.itbis) > 0 && Number(totales?.subtotal) > 0
+    ? Number(totales.itbis) / Number(totales.subtotal) : 0.18
+  // gravado/exento computed from item subtotals are GROSS (ITBIS-inclusive
+  // when the price tag was DR-retail style). Convert to ex-ITBIS for the
+  // MontoGravado* fields; exempt stays as-is (no ITBIS by definition).
+  const gravadoNet = Math.round((split.gravado / (1 + itbisFactor)) * 100) / 100
+  const itbisOnGravado = Math.round((split.gravado - gravadoNet) * 100) / 100
+  return {
+    ...totales,
+    gravado18: gravadoNet,
+    itbis18:   itbisOnGravado,
+    exento:    split.exento,
+  }
+}
+
 function buildE31(d) {
   const comprador = buildComprador(d.comprador)
   if (!comprador) throw new Error('E31 requiere RNC del comprador')
@@ -296,7 +353,7 @@ function buildE31(d) {
         },
         Emisor:    buildEmisor(d.emisor),
         Comprador: comprador,
-        Totales:   buildTotales18(d.totales),
+        Totales:   buildTotales18(withExemptSplit(d.totales, d.items)),
         ...(otraMoneda ? { OtraMoneda: otraMoneda } : {}),
       },
       DetallesItems: buildItems(d.items),
@@ -322,7 +379,7 @@ function buildE32(d) {
         },
         Emisor: buildEmisor(d.emisor),
         ...(above250k && comprador ? { Comprador: comprador } : {}),
-        Totales: buildTotales18(d.totales),
+        Totales: buildTotales18(withExemptSplit(d.totales, d.items)),
         ...(otraMoneda ? { OtraMoneda: otraMoneda } : {}),
       },
       DetallesItems: buildItems(d.items),
@@ -350,7 +407,7 @@ function buildE33(d) {
           FechaNCFModificado: d.referencia.fechaNCFModificado || formatDGIIDate(),
           CodigoModificacion: d.referencia.codigoModificacion || '3',
         },
-        Totales: buildTotales18(d.totales),
+        Totales: buildTotales18(withExemptSplit(d.totales, d.items)),
       },
       DetallesItems: buildItems(d.items || []),
     },
@@ -379,7 +436,7 @@ function buildE34(d) {
           FechaNCFModificado: d.referencia.fechaNCFModificado || formatDGIIDate(),
           CodigoModificacion: d.referencia.codigoModificacion || '3',
         },
-        Totales: buildTotales18(d.totales),
+        Totales: buildTotales18(withExemptSplit(d.totales, d.items)),
       },
       DetallesItems: buildItems(d.items || []),
     },

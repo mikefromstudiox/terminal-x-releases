@@ -6994,6 +6994,37 @@ function ticketCreate(data) {
   const itbisPct = Number(itbisPctRow?.value)
   const itbisFactor = (Number.isFinite(itbisPct) && itbisPct >= 0 ? itbisPct : 18) / 100
 
+  // v2.16.31 follow-up — auto-charge Servicio 10% (Ley 16-92) on restaurant +
+  // food_truck. Mirrors the web tickets.create branch so desktop / cloud
+  // produce the same ticket totals for the same input. Skipped when:
+  //   - caller already supplied data.ley > 0 (explicit override path)
+  //   - data.servicio_amount > 0 (RestaurantPOS mesa flow drives that field)
+  //   - owner set receipt_show_servicio_ley='0' in app_settings (opt-out is
+  //     bidirectional — toggles both render AND charge).
+  try {
+    const incomingLey_ = Number(data.ley)
+    const hasExplicitLey_ = Number.isFinite(incomingLey_) && incomingLey_ > 0
+    const hasServicioAmount_ = Number(data.servicio_amount) > 0
+    if (!hasExplicitLey_ && !hasServicioAmount_) {
+      const bizTypeRow = db.prepare("SELECT value FROM app_settings WHERE key='business_type'").get()
+      const bizType_ = String(bizTypeRow?.value || '').toLowerCase()
+      if (bizType_ === 'restaurant' || bizType_ === 'food_truck') {
+        const flagRow = db.prepare("SELECT value FROM app_settings WHERE key='receipt_show_servicio_ley'").get()
+        const fv = flagRow?.value
+        const optedOut_ = (fv === '0' || fv === 0 || fv === 'false' || fv === false)
+        if (!optedOut_) {
+          const grossSub_ = Number(data.subtotal) || 0
+          const subEx_ = grossSub_ > 0 ? grossSub_ / (1 + itbisFactor) : 0
+          const computed_ = Math.round(subEx_ * 0.10 * 100) / 100
+          if (computed_ > 0) {
+            data.ley = computed_
+            data.total = Math.round(((Number(data.total) || 0) + computed_) * 100) / 100
+          }
+        }
+      }
+    }
+  } catch (e) { try { console.error('[database.js] ley auto-compute failed:', e.message) } catch {} }
+
   // v2.3 — multi-POS gates. HWID is stamped by main.js onto app_settings so
   // database.js (no electron dep) can read it without reaching back up.
   const multiPos = multiPosEnabled()

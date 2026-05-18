@@ -8,6 +8,15 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import QRCode from 'qrcode'
 import { formatPhoneForReceipt } from './phone.js'
+// v2.16.31 follow-up — resolve receipt_* flags + custom footer identically to
+// printer.js so the PDF download surface (Cobrar success → WhatsApp doc /
+// browser download) renders the same toggles, EXENTO labels, SKU, unit
+// echoes, credit-ref line, loyalty block and per-vertical defaults.
+import {
+  resolveReceiptFlag,
+  resolveReceiptFooter,
+  RECEIPT_DEFAULT_FOOTER,
+} from '../config/receiptDefaults.js'
 
 // 80mm receipt width in pts (1mm ≈ 2.835 pts). Height is dynamic.
 const PAGE_W  = 226   // 80mm in pts
@@ -345,8 +354,12 @@ async function buildPDF(data) {
   }
 
   // ═══ FOOTER — X logo mark + gracias + powered by ═══════════════════════════
+  // v2.16.31 follow-up — receipt_footer_message override via resolveReceiptFooter
+  // (capped to RECEIPT_FOOTER_MAX_CHARS, defaults to RECEIPT_DEFAULT_FOOTER).
+  // Owner-defined string (set in Sistema → Personalización de Recibo) replaces
+  // the gracias line — identical behavior to printer.js.
   y -= 8
-  const graceA = 'GRACIAS POR SU PREFERENCIA'
+  const graceA = String(resolveReceiptFooter(data.cfg || {}) || RECEIPT_DEFAULT_FOOTER).toUpperCase()
   const gaW = fontB.widthOfTextAtSize(graceA, 8)
   page.drawText(graceA, { x: MARGIN + (COL_W - gaW) / 2, y: y - 8, size: 8, font: fontB, color: RGB(INK) })
   y -= 12
@@ -712,6 +725,19 @@ function buildLines(data) {
   function rule()               { lines.push({ type: 'rule', height: 8 }) }
   function gap(h = 4)           { lines.push({ type: 'rule', height: h }) }
 
+  // v2.16.31 follow-up — pull the same flag resolution path as printer.js so
+  // the PDF surface honors per-business-type defaults + Sistema overrides.
+  const cfg = data.cfg || {}
+  const bizType = data.biz?.business_type || data.biz?.biz_business_type || data.businessType || ''
+  const flag = (key) => resolveReceiptFlag(cfg, bizType, key)
+  const showSku            = flag('receipt_show_sku')
+  const showUnitPrice      = flag('receipt_show_unit_price')
+  const showExemptLabel    = flag('receipt_show_exempt_label')
+  const showCreditRef      = flag('receipt_show_credit_ref')
+  const showVehicleDetails = flag('receipt_show_vehicle_details')
+  const showLoyalty        = flag('receipt_show_loyalty')
+  const showServicioLey    = flag('receipt_show_servicio_ley')
+
   const isCredito = ['E31', 'B01'].includes(data.ncfType)
   pill(isCredito ? 'FACTURA DE CREDITO FISCAL' : 'FACTURA CONSUMIDOR FINAL', { size: SMALL })
   gap(6)
@@ -720,17 +746,30 @@ function buildLines(data) {
   cols('FECHA', fmtDate(data.paidAt), { upper: true, size: SMALL })
   cols('DOC',   data.docNo || '-',    { upper: true, size: SMALL })
   cols('NCF',   data.ncf || '-',      { upper: true, size: SMALL })
+  // v2.16.31 follow-up — credit-note reference line. Threaded from caller via
+  // `data.referenceNcf` (or legacy `data.modifies_ncf`), only when the
+  // current NCF is an E33/E34 and the flag is on (defaults true).
+  const ncfUpperPdf = String(data.ncf || '').toUpperCase()
+  const isCreditNote = /^E3[34]/.test(ncfUpperPdf)
+  const refNcf = String(data.referenceNcf || data.modifies_ncf || '').trim()
+  if (showCreditRef && isCreditNote && refNcf) {
+    cols('MODIFICA NCF', refNcf, { upper: true, size: SMALL })
+  }
   if (data.cajero)       cols('CAJERO',   data.cajero,       { upper: true, size: SMALL })
   if (data.lavador)      cols('LAVADOR',  data.lavador,      { upper: true, size: SMALL })
   if (data.vehiclePlate) cols('VEHICULO', data.vehiclePlate, { upper: true, size: SMALL })
-  // v2.16.0 — mecánica vehicle block extension
-  if (data.vehicleVin) cols('VIN', String(data.vehicleVin).slice(0, 26), { upper: true, size: SMALL })
-  if (data.vehicleMake || data.vehicleModel) {
-    const mm = [data.vehicleMake, data.vehicleModel].filter(Boolean).join(' ').slice(0, 26)
-    cols('MARCA/MODELO', mm, { upper: true, size: SMALL })
-  }
-  if (data.vehicleKm != null && data.vehicleKm !== '') {
-    cols('KILOMETRAJE', `${Number(data.vehicleKm).toLocaleString('en-US')} KM`, { upper: true, size: SMALL })
+  // v2.16.0 — mecánica vehicle block. v2.16.31 follow-up — gated on
+  // receipt_show_vehicle_details so non-vehicular verticals don't render an
+  // empty-looking MARCA/MODELO line.
+  if (showVehicleDetails) {
+    if (data.vehicleVin) cols('VIN', String(data.vehicleVin).slice(0, 26), { upper: true, size: SMALL })
+    if (data.vehicleMake || data.vehicleModel) {
+      const mm = [data.vehicleMake, data.vehicleModel].filter(Boolean).join(' ').slice(0, 26)
+      cols('MARCA/MODELO', mm, { upper: true, size: SMALL })
+    }
+    if (data.vehicleKm != null && data.vehicleKm !== '') {
+      cols('KILOMETRAJE', `${Number(data.vehicleKm).toLocaleString('en-US')} KM`, { upper: true, size: SMALL })
+    }
   }
 
   if (data.client?.name || data.client?.rnc || data.client?.phone) {
@@ -774,6 +813,20 @@ function buildLines(data) {
     const name = qty > 1 ? `${qty}x ${svc.name}` : svc.name
     const lineTotal = (Number(svc.price) || 0) * qty
     cols(name, fmtRD(lineTotal), { boldLeft: true, size: NORMAL })
+    // v2.16.31 follow-up — SKU sub-line, parity with printer.js.
+    const sku = String(svc.sku || svc.barcode || '').trim()
+    if (showSku && sku) {
+      cols('  SKU: ' + sku, '', { size: SMALL })
+    }
+    // v2.16.31 follow-up — per-unit echo on multi-qty lines (skip weighted).
+    if (showUnitPrice && (svc.weight == null) && qty > 1) {
+      cols(`  ${svc.name} @ ${fmtRD(svc.price)}`, '', { size: SMALL })
+    }
+    // v2.16.31 follow-up — DGII EXENTO marker per line. Defaults ON.
+    const isExempt = (svc.aplica_itbis === false || Number(svc.aplica_itbis) === 0)
+    if (showExemptLabel && isExempt) {
+      cols('  [EXENTO ITBIS]', '', { size: SMALL })
+    }
     const lineTaxed = svc.aplica_itbis === undefined || svc.aplica_itbis === null
       || (svc.aplica_itbis !== false && Number(svc.aplica_itbis) !== 0)
     if (showItbisPerLine && lineTaxed && lineTotal > 0) {
@@ -799,7 +852,19 @@ function buildLines(data) {
     const itbisLabel = showItbisPct ? `ITBIS ${itbisPct}%` : 'ITBIS'
     cols(itbisLabel,    fmtRD(data.itbis),    { size: SMALL })
   }
-  if (data.ley > 0) cols('Ley 10%', fmtRD(data.ley), { size: SMALL })
+  // v2.16.31 follow-up — gated on receipt_show_servicio_ley so non-hospitality
+  // verticals can suppress the printed line even when ticket.ley > 0.
+  if (data.ley > 0 && showServicioLey) cols('Ley 10%', fmtRD(data.ley), { size: SMALL })
+
+  // v2.16.31 follow-up — loyalty earned/balance block. Threaded by CobrarModal
+  // as `data.loyaltyEarned` + optional `data.loyaltyBalance`. Defaults ON for
+  // every vertical that has a client attached + a positive earn.
+  if (showLoyalty && Number(data.loyaltyEarned) > 0) {
+    cols('Acumulas', `${Number(data.loyaltyEarned).toFixed(0)} pts`, { size: SMALL })
+    if (Number(data.loyaltyBalance) > 0) {
+      cols('Saldo puntos', `${Number(data.loyaltyBalance).toFixed(0)} pts`, { size: SMALL })
+    }
+  }
 
   return lines
 }

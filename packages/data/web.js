@@ -2701,6 +2701,47 @@ export function createWebAPI(supabase, businessId) {
               } catch { itbisFactor = 0.18 }
             }
 
+            // v2.16.31 follow-up — auto-charge Servicio 10% (Ley 16-92) on
+            // restaurant + food_truck verticals. ITBIS-exempt (DR fiscal
+            // norm). Caller can opt out per-business by flipping
+            // app_settings.receipt_show_servicio_ley='0' — that flag is
+            // bidirectional (toggles BOTH render AND charge). Caller can
+            // also override by passing data.ley explicitly (>0) which we
+            // never clobber. Restaurant POS already passes
+            // servicio_amount/servicio_pct via the dedicated mesa flow; for
+            // that path we let the existing amount win and skip auto-compute.
+            const incomingLey = Number(data.ley)
+            const hasExplicitLey = Number.isFinite(incomingLey) && incomingLey > 0
+            const hasServicioAmount = Number(data.servicio_amount) > 0
+            if (!hasExplicitLey && !hasServicioAmount) {
+              try {
+                const { data: bizRow } = await supabase.from('businesses')
+                  .select('settings').eq('id', bid).maybeSingle()
+                const bizSettings = bizRow?.settings || {}
+                const bizType = String(bizSettings.business_type || '').toLowerCase()
+                if (bizType === 'restaurant' || bizType === 'food_truck') {
+                  const { data: leyFlag } = await supabase.from('app_settings')
+                    .select('value').eq('business_id', bid).eq('key', 'receipt_show_servicio_ley').maybeSingle()
+                  const flagVal = leyFlag?.value
+                  const optedOut = (flagVal === '0' || flagVal === 0 || flagVal === false || flagVal === 'false')
+                  if (!optedOut) {
+                    // ITBIS-exempt 10% over subtotal ex-ITBIS. Caller's
+                    // data.subtotal here is GROSS (ITBIS-inclusive, DR retail
+                    // convention) so we strip ITBIS using the resolved factor.
+                    const grossSub = Number(data.subtotal) || 0
+                    const subEx = grossSub > 0 ? grossSub / (1 + itbisFactor) : 0
+                    const computed = Math.round(subEx * 0.10 * 100) / 100
+                    if (computed > 0) {
+                      data.ley = computed
+                      // ley is NOT subject to ITBIS — total = subtotal+itbis+ley.
+                      const newTotal = Math.round(((Number(data.total) || 0) + computed) * 100) / 100
+                      data.total = newTotal
+                    }
+                  }
+                }
+              } catch (e) { console.error('[web.js] ley auto-compute failed:', e.message) }
+            }
+
             // ── Server-side price validation (#21) ────────────────────────
             // Validate item prices against real DB values before proceeding.
             // Prevents client-side price manipulation via DevTools.
@@ -5074,11 +5115,26 @@ export function createWebAPI(supabase, businessId) {
           cajero_supabase_id:           data.cajero_supabase_id ?? null,
         }
         throwSupaError(await supabase.from('notas_credito').insert(row))
+        // v2.16.31 follow-up — resolve + log the original ticket's NCF so the
+        // audit trail captures it even though the table itself has no
+        // dedicated column. Recovered later by reprint paths via
+        // notas_credito.original_ticket_supabase_id → tickets.ncf.
+        let originalNcfResolved = data.original_ncf || null
+        if (!originalNcfResolved && data.original_ticket_supabase_id) {
+          try {
+            const { data: t } = await supabase.from('tickets')
+              .select('ncf')
+              .eq('business_id', bid)
+              .eq('supabase_id', data.original_ticket_supabase_id)
+              .maybeSingle()
+            originalNcfResolved = t?.ncf || null
+          } catch {}
+        }
         await logActivity({ event_type: 'nota_credito_created', severity: 'critical',
           target_type: 'nota_credito', target_name: data.ncf || 'NC',
           amount: data.amount, reason: data.motivo || null,
-          metadata: { original_ticket_id: data.original_ticket_id || null, itbis_revertido: data.itbis_revertido, forma_devolucion: data.forma_devolucion, client_name: data.client_name || null, client_rnc: data.client_rnc || null, mac_jti: data.mac_jti || null } })
-        return { ok: true, supabase_id: sid }
+          metadata: { original_ticket_id: data.original_ticket_id || null, original_ticket_supabase_id: data.original_ticket_supabase_id || null, original_ncf: originalNcfResolved, itbis_revertido: data.itbis_revertido, forma_devolucion: data.forma_devolucion, client_name: data.client_name || null, client_rnc: data.client_rnc || null, mac_jti: data.mac_jti || null } })
+        return { ok: true, supabase_id: sid, original_ncf: originalNcfResolved }
       }),
     },
 
