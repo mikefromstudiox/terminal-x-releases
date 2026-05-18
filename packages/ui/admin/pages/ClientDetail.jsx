@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2, Gift, Mail, Send, CheckCircle2, XCircle, MessageCircle, RefreshCw, AlertTriangle, AlertCircle, Activity } from 'lucide-react'
+import { ArrowLeft, Loader2, Building2, KeyRound, Users, ShoppingCart, Save, X, ShieldCheck, ShieldAlert, Lock, Pencil, Calendar, MapPin, Plus, Trash2, Gift, Mail, Send, CheckCircle2, XCircle, MessageCircle, RefreshCw, AlertTriangle, AlertCircle, Activity, Sparkles } from 'lucide-react'
 import { useLang } from '../../i18n'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import QuickActions from '../components/QuickActions'
@@ -771,6 +771,15 @@ export default function ClientDetail({ getToken, refreshToken, isDark }) {
             <DiagnosticoCard
               businessId={biz.id}
               businessType={biz.business_type}
+              isDark={isDark}
+              getToken={getToken}
+              refreshToken={refreshToken}
+              L={L}
+            />
+
+            {/* 2026-05-17 — Claude AI features per-business toggle card */}
+            <ClaudeFeaturesCard
+              businessId={biz.id}
               isDark={isDark}
               getToken={getToken}
               refreshToken={refreshToken}
@@ -1550,6 +1559,195 @@ function DiagnosticoCard({ businessId, businessType, isDark, getToken, refreshTo
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// 2026-05-17 — Claude AI per-business feature toggles. Reads/writes
+// claude_feature_flags via panel.js admin actions. Default OFF for every
+// business; Mike toggles per-client. Shows monthly USD spend + budget cap.
+function ClaudeFeaturesCard({ businessId, isDark, getToken, refreshToken, L }) {
+  const [flags, setFlags] = useState(null)
+  const [hasApiKey, setHasApiKey] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const [savedAt, setSavedAt] = useState(null)
+
+  const tokenFor = async () => (await refreshToken()) || getToken()
+
+  const load = async () => {
+    setLoading(true); setErr('')
+    try {
+      const token = await tokenFor()
+      const r = await fetch(`/api/panel?action=claude_flags_get&business_id=${encodeURIComponent(businessId)}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'Error')
+      setFlags(j.flags)
+      setHasApiKey(j.has_api_key)
+    } catch (e) {
+      setErr(e.message || 'Error')
+    }
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [businessId])
+
+  const persist = async (patch) => {
+    setSaving(true); setErr('')
+    try {
+      const token = await tokenFor()
+      const r = await fetch('/api/panel?action=claude_flags_set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ business_id: businessId, ...patch }),
+      })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'Error')
+      setFlags(j.flags)
+      setSavedAt(new Date())
+    } catch (e) {
+      setErr(e.message || 'Error')
+    }
+    setSaving(false)
+  }
+
+  const card = `rounded-2xl border p-5 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/8'}`
+
+  const toggle = (col, label, hint, soon = false) => {
+    const on = Boolean(flags?.[col])
+    return (
+      <div className="flex items-start justify-between gap-3 py-2">
+        <div className="flex-1 min-w-0">
+          <div className={`text-[13px] font-semibold ${isDark ? 'text-white' : 'text-black'}`}>{label}{soon ? ` — ${L('próximamente', 'coming soon')}` : ''}</div>
+          {hint && <div className={`text-[11px] mt-0.5 ${isDark ? 'text-white/50' : 'text-black/50'}`}>{hint}</div>}
+        </div>
+        <button
+          onClick={() => !saving && !soon && persist({ [col]: !on })}
+          disabled={saving || soon}
+          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${on ? 'bg-[#b3001e]' : isDark ? 'bg-white/10' : 'bg-black/15'}`}
+          aria-pressed={on}
+        >
+          <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${on ? 'translate-x-5' : 'translate-x-0'}`} />
+        </button>
+      </div>
+    )
+  }
+
+  if (loading && !flags) return (
+    <div className={card}>
+      <div className="flex items-center gap-2 text-sm text-slate-400">
+        <Loader2 size={14} className="animate-spin" />
+        {L('Cargando Claude AI…', 'Loading Claude AI…')}
+      </div>
+    </div>
+  )
+
+  const spent = Number(flags?.spent_this_month_usd || 0)
+  const budget = Number(flags?.monthly_budget_usd || 0)
+  const pctUsed = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0
+  const overBudget = budget > 0 && spent >= budget
+
+  return (
+    <div className={card}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Sparkles size={14} className="text-[#b3001e]" />
+          <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+            {L('Claude AI', 'Claude AI')}
+          </p>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors ${isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-black/50 hover:text-black hover:bg-black/5'}`}
+        >
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          {L('Refrescar', 'Refresh')}
+        </button>
+      </div>
+
+      {!hasApiKey && (
+        <div className="mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-2">
+          <AlertTriangle size={12} />
+          {L('ANTHROPIC_API_KEY no configurada en Vercel — los toggles guardan pero las llamadas se omiten.', 'ANTHROPIC_API_KEY not set in Vercel — toggles persist but calls will be skipped.')}
+        </div>
+      )}
+
+      {err && (
+        <div className="mb-3 p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] text-[#b3001e]">
+          {err}
+        </div>
+      )}
+
+      <div className={`divide-y ${isDark ? 'divide-white/5' : 'divide-black/5'}`}>
+        {toggle('dgii_error_translator',
+          L('Traductor de errores DGII', 'DGII error translator'),
+          L('Convierte rechazos de e-CF en frases en español sencillo para el cajero.', 'Translates raw DGII e-CF rejections into plain Spanish for cashiers.'))}
+        {toggle('cuadre_anomaly',
+          L('Detector de anomalías en cuadre', 'Cuadre anomaly detector'),
+          L('Cada 5 min revisa cuadres recién cerrados y avisa al dueño por WhatsApp si algo se ve raro.', 'Every 5 min, scans recently-closed cuadres and WhatsApps the owner on anomalies.'))}
+        {toggle('insights_digest',
+          L('Insights en el resumen diario', 'Insights in daily digest'),
+          L('Añade 5 líneas de observaciones accionables al WhatsApp/email del resumen diario.', 'Appends 5 lines of actionable insights to the daily digest WhatsApp/email.'))}
+        {toggle('reorder_suggestions',
+          L('Sugerencias de reposición', 'Reorder suggestions'),
+          L('Predicción de stock basada en velocidad de venta.', 'Stock predictions based on sell-through velocity.'),
+          true)}
+        {toggle('faq_autoreply',
+          L('Auto-respuestas FAQ por WhatsApp', 'WhatsApp FAQ auto-reply'),
+          L('Responde preguntas comunes de clientes automáticamente.', 'Automatically answers common customer questions.'),
+          true)}
+      </div>
+
+      <div className={`mt-4 pt-3 border-t ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className={`text-[12px] font-semibold ${isDark ? 'text-white' : 'text-black'}`}>{L('Presupuesto mensual (USD)', 'Monthly budget (USD)')}</div>
+          <div className="flex items-center gap-2">
+            <span className={`text-[11px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>$</span>
+            <input
+              type="number"
+              min="0"
+              max="50"
+              step="0.50"
+              defaultValue={budget.toFixed(2)}
+              onBlur={(e) => {
+                const v = Number(e.target.value)
+                if (Number.isFinite(v) && v !== budget) persist({ monthly_budget_usd: v })
+              }}
+              disabled={saving}
+              className={`w-20 px-2 py-1 rounded-md text-[12px] font-mono text-right border ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] mb-1">
+          <span className={isDark ? 'text-white/50' : 'text-black/50'}>{L('Gastado este mes', 'Spent this month')}</span>
+          <span className={`font-mono ${overBudget ? 'text-[#b3001e] font-bold' : isDark ? 'text-white/80' : 'text-black/80'}`}>
+            ${spent.toFixed(4)} / ${budget.toFixed(2)}
+          </span>
+        </div>
+        <div className={`h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
+          <div
+            className={`h-full transition-all ${overBudget ? 'bg-[#b3001e]' : pctUsed > 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+            style={{ width: `${pctUsed}%` }}
+          />
+        </div>
+        {overBudget && (
+          <p className="text-[10px] text-[#b3001e] mt-1">
+            {L('Presupuesto agotado — las llamadas se omiten hasta el próximo mes o hasta subir el cap.', 'Budget exhausted — calls are skipped until next month or until the cap is raised.')}
+          </p>
+        )}
+
+        {flags?.updated_at && (
+          <p className={`text-[10px] mt-3 ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+            {L('Actualizado por', 'Updated by')} <span className="font-semibold">{flags.updated_by || '—'}</span>
+            {' · '}{new Date(flags.updated_at).toLocaleString('es-DO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            {savedAt && (saving ? ` · ${L('guardando…', 'saving…')}` : ` · ${L('guardado', 'saved')}`)}
+          </p>
+        )}
       </div>
     </div>
   )

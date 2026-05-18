@@ -18,6 +18,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { withReporting } from '../../lib/report-server-error.js'
+import { callClaudeForBusiness } from '../../lib/claude-client.js'
 
 // ── DR timezone math (UTC-4 year-round, no DST) ────────────────────────────
 // Dominican Republic observes AST without DST. "Yesterday" = the 24h window
@@ -225,6 +226,119 @@ async function runForBusiness(supabase, business, window) {
     cuadreFlags,
     countVariances,
   })
+
+  // ── 2026-05-17 — Claude insights (feature-gated per-business). Appends
+  // a 5-line "insights" section to the WhatsApp body (and the email text/HTML).
+  // Pulls extra context: day-before tickets + top cashiers — all scoped to
+  // this business_id. Skipped silently if toggle off / no API key / no budget.
+  let claudeInsights = ''
+  try {
+    const settingsBt = (business.settings && typeof business.settings === 'object')
+      ? (business.settings.business_type || business.settings.biz_type)
+      : null
+    const businessType = settingsBt || 'negocio'
+
+    // Yesterday-of-yesterday window for comparison.
+    const yWindow = {
+      fromIso: new Date(new Date(window.fromIso).getTime() - 24 * 3600 * 1000).toISOString(),
+      toIso:   window.fromIso,
+    }
+    const { data: prevTickets } = await supabase
+      .from('tickets')
+      .select('total, services_json')
+      .eq('business_id', bid)
+      .eq('status', 'cobrado')
+      .gte('paid_at', yWindow.fromIso)
+      .lt('paid_at', yWindow.toIso)
+    const prevRevenue = (prevTickets || []).reduce((s, t) => s + Number(t.total || 0), 0)
+    const prevCount = (prevTickets || []).length
+
+    // Top 3 cashiers / workers by revenue today. Tickets carry cashier_id /
+    // cajero_supabase_id — we map to staff.name client-side.
+    const { data: workerTickets } = await supabase
+      .from('tickets')
+      .select('total, cashier_id, cajero_supabase_id, stylist_id')
+      .eq('business_id', bid)
+      .eq('status', 'cobrado')
+      .gte('paid_at', window.fromIso)
+      .lt('paid_at', window.toIso)
+    const workerMap = new Map()
+    for (const t of workerTickets || []) {
+      const key = t.cashier_id || t.cajero_supabase_id || t.stylist_id || 'sin-cajero'
+      workerMap.set(key, (workerMap.get(key) || 0) + Number(t.total || 0))
+    }
+    const topWorkerKeys = [...workerMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+    let topWorkers = []
+    if (topWorkerKeys.length) {
+      const ids = topWorkerKeys.map(([k]) => k).filter(k => k && k !== 'sin-cajero')
+      const { data: staff } = ids.length
+        ? await supabase.from('staff').select('id, supabase_id, name').or(ids.map(i => `id.eq.${i},supabase_id.eq.${i}`).join(','))
+        : { data: [] }
+      const nameById = new Map()
+      for (const s of staff || []) {
+        if (s.id) nameById.set(s.id, s.name)
+        if (s.supabase_id) nameById.set(s.supabase_id, s.name)
+      }
+      topWorkers = topWorkerKeys.map(([k, total]) => ({ name: nameById.get(k) || 'Sin nombre', total }))
+    }
+
+    const rdL = n => `RD$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    const top3Block = digest.stats.top3.length
+      ? digest.stats.top3.map((p, i) => `${i + 1}. ${p.name} — ${p.qty}u · ${rdL(p.revenue)}`).join('\n')
+      : '(sin productos vendidos)'
+    const workerBlock = topWorkers.length
+      ? topWorkers.map((w, i) => `${i + 1}. ${w.name} — ${rdL(w.total)}`).join('\n')
+      : '(sin datos de cajero)'
+    const deltaRevenue = digest.stats.revenue - prevRevenue
+    const deltaTickets = digest.stats.count - prevCount
+
+    const prompt = [
+      `Eres un analista para un dueño de negocio dominicano de tipo ${businessType}.`,
+      '',
+      `Estadísticas de hoy (${window.label}):`,
+      `- Ventas: ${rdL(digest.stats.revenue)}`,
+      `- Tickets: ${digest.stats.count}`,
+      `- Ticket promedio: ${rdL(digest.stats.avg)}`,
+      `- Autorizaciones de gerente: ${overrides}`,
+      `- Descuadres caja (>RD$50): ${cuadreFlags.length}`,
+      '',
+      'Comparación con ayer:',
+      `- Δ Ventas: ${rdL(deltaRevenue)} (ayer: ${rdL(prevRevenue)})`,
+      `- Δ Tickets: ${deltaTickets} (ayer: ${prevCount})`,
+      '',
+      'Top 3 servicios/items vendidos hoy:',
+      top3Block,
+      '',
+      'Top 3 cajeros/lavadores por ingreso:',
+      workerBlock,
+      '',
+      'Escribe EXACTAMENTE 5 líneas en español dominicano (no formal, no markdown), cada línea ≤ 90 caracteres, con observaciones accionables. Empieza cada línea con un emoji relevante. No incluyas números crudos — interpreta el dato.',
+      '',
+      'Ejemplos de tono: "🔥 Vendiste 28% más cervezas Presidente que ayer — quizás stock para mañana." "👀 Carlos cerró 4 tickets sin lavar el carro — revisa la cola."',
+    ].join('\n')
+
+    const r = await callClaudeForBusiness({
+      businessId: bid,
+      feature: 'insights_digest',
+      prompt,
+      maxTokens: 512,
+      temperature: 0.3,
+    })
+    if (r.ok && r.text) {
+      claudeInsights = r.text.trim()
+      // Append to text body.
+      digest.text = `${digest.text}\n\n— Insights —\n${claudeInsights}`
+      // Append to HTML body before the footer row.
+      const insightsHtml = `<tr><td style="padding-top:20px;border-top:1px solid #000;">
+        <div style="color:#b3001e;font-weight:800;font-size:13px;margin:12px 0 8px;">Insights</div>
+        ${claudeInsights.split('\n').filter(Boolean).map(line => `<div style="color:#000;font-size:13px;padding:3px 0;">${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`).join('')}
+      </td></tr>`
+      digest.html = digest.html.replace(
+        /<tr><td style="padding-top:24px;color:#000/,
+        `${insightsHtml}<tr><td style="padding-top:24px;color:#000`,
+      )
+    }
+  } catch { /* insights are additive — never block the digest */ }
 
   const subject = `Terminal X — Resumen ${window.label} · ${name}`
 

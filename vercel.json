@@ -82,6 +82,7 @@
     { "path": "/api/panel?action=cron_health_verifier", "schedule": "*/30 * * * *" },
     { "path": "/api/panel?action=cron_flow_drift_smoke", "schedule": "*/15 * * * *" },
     { "path": "/api/panel?action=cron_claude_triage", "schedule": "*/2 * * * *" },
+    { "path": "/api/panel?action=cron_claude_anomaly_scan", "schedule": "*/5 * * * *" },
     { "path": "/api/panel?action=cron_mega_smoke", "schedule": "*/15 * * * *" }
   ]
 }

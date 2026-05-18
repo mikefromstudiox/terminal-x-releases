@@ -1715,8 +1715,37 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
         return
       }
       try { window.__txReportError?.(err, { severity: 'critical', category: 'cobro.dgii.submit', extra: { ncfType, total, ticketSid: ticket?.supabase_id } }) } catch {}
-      setEcfError(err?.message || 'Error al enviar e-CF a DGII')
+      const rawErrMsg = err?.message || 'Error al enviar e-CF a DGII'
+      setEcfError(rawErrMsg)
       setEcfState('error')
+      // 2026-05-17 — Claude DGII translator (feature-gated per-business via
+      // claude_feature_flags.dgii_error_translator). Endpoint silently returns
+      // ok:false / skipped_reason when toggle off, API key missing, or budget
+      // exhausted — UI keeps the raw DGII message in that case (no regression).
+      ;(async () => {
+        try {
+          const mod = await import('@terminal-x/services/supabase.js').catch(() => null)
+          const sb = mod?.getSupabaseClient?.()
+          if (!sb) return
+          const { data: { session } } = await sb.auth.getSession()
+          const token = session?.access_token
+          if (!token) return
+          const r = await fetch('/api/panel?action=claude_translate_dgii_error', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              raw_message:  rawErrMsg,
+              ecf_type:     ncfType || '',
+              business_rnc: (rnc || '').replace(/\D/g, ''),
+            }),
+          })
+          if (!r.ok) return
+          const j = await r.json().catch(() => null)
+          if (j?.ok && j.friendly) setEcfError(j.friendly)
+        } catch (translateErr) {
+          try { window.__txReportError?.(translateErr, { severity: 'info', category: 'claude.dgii_translator.client_call_failed' }) } catch {}
+        }
+      })()
     }
   }
 

@@ -254,6 +254,19 @@ async function handler(req, res) {
   if (action === 'firm_impersonate_check')   return handleFirmImpersonateCheck(req, res)
   if (action === 'firm_impersonate_end')     return handleFirmImpersonateEnd(req, res)
 
+  // ── 2026-05-17 — Claude per-business features (Layers 6-8) ──────────────
+  // Admin-gated CRUD on per-client toggles + budget. Default OFF for every
+  // business; Mike flips them on per-client.
+  if (action === 'claude_flags_get')           return handleClaudeFlagsGet(req, res)
+  if (action === 'claude_flags_set')           return handleClaudeFlagsSet(req, res)
+  // License-JWT authed — called by CobrarModal to translate raw DGII rejection
+  // messages into cashier-friendly Spanish. Server-side because ANTHROPIC_API_KEY
+  // must never reach the browser.
+  if (action === 'claude_translate_dgii_error') return handleClaudeTranslateDgii(req, res)
+  // Cron-tick — scans cuadres closed in the last 10min, runs anomaly detection
+  // for businesses with cuadre_anomaly toggle ON, WhatsApps the owner on alert.
+  if (action === 'cron_claude_anomaly_scan')   return handleCronClaudeAnomalyScan(req, res)
+
   return res.status(400).json({ error: 'Unknown action' })
 }
 
@@ -5916,6 +5929,289 @@ async function handleMegaSmokeHistory(req, res) {
   } catch (err) {
     reportServerError(err, { route: '/api/panel', action: 'mega_smoke_history' }).catch(() => {})
     return res.status(500).json({ error: err.message })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Claude per-business feature toggles + DGII translator endpoint (2026-05-17)
+// ─────────────────────────────────────────────────────────────────────────────
+import { callClaudeForBusiness, isClaudeFeatureEnabled, deliverClaudeAlert } from '../lib/claude-client.js'
+
+const _CLAUDE_FLAG_COLS = [
+  'dgii_error_translator', 'cuadre_anomaly', 'insights_digest',
+  'reorder_suggestions', 'faq_autoreply',
+]
+
+async function handleClaudeFlagsGet(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const businessId = String(req.query.business_id || '')
+  if (!businessId) return res.status(400).json({ error: 'missing_business_id' })
+  try {
+    const { data, error } = await auth.supabase
+      .from('claude_feature_flags')
+      .select('*')
+      .eq('business_id', businessId)
+      .maybeSingle()
+    if (error) throw error
+    // Default-OFF shape if no row yet.
+    const row = data || {
+      business_id: businessId,
+      dgii_error_translator: false, cuadre_anomaly: false, insights_digest: false,
+      reorder_suggestions: false, faq_autoreply: false,
+      monthly_budget_usd: 2.00, spent_this_month_usd: 0,
+      spent_reset_at: null, updated_at: null, updated_by: null,
+    }
+    return res.json({ flags: row, has_api_key: !!process.env.ANTHROPIC_API_KEY })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'claude_flags_get' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'flags_get_failed' })
+  }
+}
+
+async function handleClaudeFlagsSet(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const auth = await requireAdmin(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  const body = req.body || {}
+  const businessId = String(body.business_id || '')
+  if (!businessId) return res.status(400).json({ error: 'missing_business_id' })
+
+  // Build sanitized payload — only known columns, booleans coerced, budget bounded.
+  const payload = { business_id: businessId, updated_at: new Date().toISOString(), updated_by: auth.admin?.name || auth.user?.email || 'admin' }
+  for (const col of _CLAUDE_FLAG_COLS) {
+    if (col in body) payload[col] = Boolean(body[col])
+  }
+  if ('monthly_budget_usd' in body) {
+    const n = Number(body.monthly_budget_usd)
+    if (!Number.isFinite(n) || n < 0 || n > 50) return res.status(400).json({ error: 'budget_out_of_range' })
+    payload.monthly_budget_usd = Math.round(n * 100) / 100
+  }
+
+  try {
+    const { data, error } = await auth.supabase
+      .from('claude_feature_flags')
+      .upsert(payload, { onConflict: 'business_id' })
+      .select()
+      .maybeSingle()
+    if (error) throw error
+    return res.json({ ok: true, flags: data })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'claude_flags_set' }).catch(() => {})
+    return res.status(500).json({ error: err.message || 'flags_set_failed' })
+  }
+}
+
+// License-JWT (Supabase auth) authed. CobrarModal posts a raw DGII rejection
+// message + the e-CF metadata; if the business has the toggle on, returns a
+// cashier-friendly Spanish translation. Otherwise returns { ok:false, skipped_reason }
+// and the UI keeps the raw message.
+async function handleClaudeTranslateDgii(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  const authHeader = req.headers.authorization || ''
+  if (!authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'missing_auth' })
+  const supabase = getClient()
+  const { data: { user }, error: uErr } = await supabase.auth.getUser(authHeader.slice(7))
+  if (uErr || !user) return res.status(401).json({ error: 'invalid_token' })
+
+  // Resolve business_id from JWT app_metadata → staff fallback (same convention as ctbAuthUser).
+  let businessId = user.app_metadata?.business_id || null
+  if (!businessId) {
+    const { data: staff } = await supabase.from('staff')
+      .select('business_id').eq('auth_user_id', user.id).eq('active', true).maybeSingle()
+    businessId = staff?.business_id || null
+  }
+  if (!businessId) return res.status(403).json({ error: 'no_business' })
+
+  // Rate-limit per-business so a rejection loop can't drain the budget.
+  if (!(await checkRateLimit(`claude_dgii:${businessId}`, 20))) {
+    return res.status(429).json({ error: 'rate_limited' })
+  }
+
+  const body = req.body || {}
+  const raw = String(body.raw_message || '').slice(0, 4000)
+  const ecfType = String(body.ecf_type || '').slice(0, 12)
+  const businessRnc = String(body.business_rnc || '').slice(0, 16)
+  if (!raw) return res.status(400).json({ error: 'missing_raw_message' })
+
+  const prompt = [
+    'Eres un asistente para cajeros dominicanos. Traduce este error de DGII a una frase corta en español sencillo (max 25 palabras) explicando qué pasó y qué hacer.',
+    '',
+    'Error de DGII:',
+    raw,
+    '',
+    `eCF tipo: ${ecfType || 'desconocido'}`,
+    `RNC del emisor: ${businessRnc || 'desconocido'}`,
+    '',
+    'Responde SOLO con la frase para el cajero, sin etiquetas ni JSON.',
+  ].join('\n')
+
+  const r = await callClaudeForBusiness({
+    businessId,
+    feature: 'dgii_translator',
+    prompt,
+    maxTokens: 256,
+    temperature: 0,
+  })
+
+  if (!r.ok) return res.json({ ok: false, skipped_reason: r.skipped_reason || 'unknown' })
+  return res.json({ ok: true, friendly: r.text.slice(0, 800), cost_usd: r.cost_usd })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cuadre anomaly cron (every 5 min) — scans cuadres closed in the last 10
+// minutes for businesses with the cuadre_anomaly flag ON. For each, builds a
+// today-vs-30day-avg comparison + voided-ticket context and asks Claude. On
+// alert: WhatsApp the owner (or enqueue into claude_alerts_pending on failure).
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleCronClaudeAnomalyScan(req, res) {
+  // Cron-secret gate (same convention as digest/daily.js).
+  const cronSecret = process.env.CRON_SECRET
+  const isCronCall = cronSecret
+    ? (req.headers.authorization || '') === `Bearer ${cronSecret}`
+    : true
+  if (cronSecret && !isCronCall) {
+    // Allow admin token through for manual triggers.
+    const auth = await requireAdmin(req)
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  }
+  const supabase = getClient()
+  const windowFromIso = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  try {
+    // Pull recently-closed cuadres.
+    const { data: closed, error: cErr } = await supabase
+      .from('cuadre_caja')
+      .select('id, business_id, cajero_id, date, closed_at, total_vendido, diferencia, efectivo_conteo, efectivo_sistema')
+      .gte('closed_at', windowFromIso)
+      .order('closed_at', { ascending: false })
+      .limit(100)
+    if (cErr) throw cErr
+    if (!closed?.length) return res.json({ ok: true, scanned: 0, alerted: 0 })
+
+    // Unique businesses.
+    const bizIds = [...new Set(closed.map(c => c.business_id).filter(Boolean))]
+    const { data: flagRows } = await supabase
+      .from('claude_feature_flags')
+      .select('business_id, cuadre_anomaly')
+      .in('business_id', bizIds)
+      .eq('cuadre_anomaly', true)
+    const enabledSet = new Set((flagRows || []).map(r => r.business_id))
+    const eligible = closed.filter(c => enabledSet.has(c.business_id))
+    if (!eligible.length) return res.json({ ok: true, scanned: closed.length, eligible: 0, alerted: 0 })
+
+    const { data: bizRows } = await supabase
+      .from('businesses')
+      .select('id, name, settings, phone')
+      .in('id', eligible.map(c => c.business_id))
+    const bizById = new Map((bizRows || []).map(b => [b.id, b]))
+
+    let alerted = 0
+    const results = []
+
+    for (const cuadre of eligible) {
+      const biz = bizById.get(cuadre.business_id)
+      if (!biz) continue
+
+      // 30-day cuadre history for averages.
+      const since30 = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
+      const { data: history } = await supabase
+        .from('cuadre_caja')
+        .select('total_vendido, diferencia, closed_at')
+        .eq('business_id', cuadre.business_id)
+        .gte('closed_at', since30)
+        .lt('closed_at', cuadre.closed_at)
+        .limit(200)
+      const hist = history || []
+      const avgVentas = hist.length ? hist.reduce((s, h) => s + Number(h.total_vendido || 0), 0) / hist.length : 0
+      const avgDiff   = hist.length ? hist.reduce((s, h) => s + Math.abs(Number(h.diferencia || 0)), 0) / hist.length : 0
+
+      // Today's voided tickets for the same business + cajero (if recorded).
+      const dayStart = `${cuadre.date}T00:00:00Z`
+      const dayEnd   = `${cuadre.date}T23:59:59Z`
+      const { data: voids } = await supabase
+        .from('tickets')
+        .select('total')
+        .eq('business_id', cuadre.business_id)
+        .eq('status', 'anulado')
+        .gte('created_at', dayStart)
+        .lte('created_at', dayEnd)
+        .limit(500)
+      const voidedCount  = (voids || []).length
+      const voidedAmount = (voids || []).reduce((s, t) => s + Number(t.total || 0), 0)
+
+      // Today's tickets count (for context).
+      const { count: todayCount } = await supabase
+        .from('tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_id', cuadre.business_id)
+        .eq('status', 'cobrado')
+        .gte('created_at', dayStart)
+        .lte('created_at', dayEnd)
+
+      const settings = (biz.settings && typeof biz.settings === 'object') ? biz.settings : {}
+      const businessType = settings.business_type || settings.biz_type || 'negocio'
+
+      const rd = n => `RD$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      const prompt = [
+        `Eres un analista financiero para un negocio dominicano de tipo ${businessType}.`,
+        '',
+        'Cuadre de hoy:',
+        `- Total ventas: ${rd(cuadre.total_vendido)}`,
+        `- Cantidad de tickets cobrados: ${todayCount || 0}`,
+        `- Voidados/anulados: ${voidedCount} por ${rd(voidedAmount)}`,
+        `- Diferencia de caja: ${rd(cuadre.diferencia)}`,
+        '',
+        `Promedio últimos 30 días (n=${hist.length}):`,
+        `- Ventas promedio: ${rd(avgVentas)}`,
+        `- Diferencia caja promedio (abs): ${rd(avgDiff)}`,
+        '',
+        '¿Hay alguna anomalía digna de alertar al dueño? Responde en EXACTAMENTE este formato JSON (sin markdown):',
+        '{"alert": true|false, "severity": "info"|"warn"|"critical", "message": "<frase corta en español, máximo 50 palabras>"}',
+        '',
+        'Si todo está normal, alert: false y message vacío.',
+      ].join('\n')
+
+      const r = await callClaudeForBusiness({
+        businessId: cuadre.business_id,
+        feature: 'cuadre_anomaly',
+        prompt,
+        maxTokens: 400,
+        temperature: 0,
+      })
+
+      if (!r.ok) {
+        results.push({ business_id: cuadre.business_id, skipped_reason: r.skipped_reason })
+        continue
+      }
+
+      // Parse Claude's JSON.
+      let parsed = null
+      try {
+        const m = r.text.match(/\{[\s\S]*\}/)
+        if (m) parsed = JSON.parse(m[0])
+      } catch { /* malformed — skip silently */ }
+      if (!parsed || !parsed.alert || !parsed.message) {
+        results.push({ business_id: cuadre.business_id, alert: false })
+        continue
+      }
+
+      const severity = ['info', 'warn', 'critical'].includes(parsed.severity) ? parsed.severity : 'warn'
+      const body = `Terminal X — Alerta de Cuadre (${severity})\n${biz.name}\n\n${parsed.message}`
+      const deliver = await deliverClaudeAlert({
+        businessId: cuadre.business_id,
+        feature: 'cuadre_anomaly',
+        severity,
+        message: body,
+      })
+      if (deliver.ok) alerted++
+      results.push({ business_id: cuadre.business_id, alert: true, severity, delivered: deliver.ok, reason: deliver.reason || null })
+    }
+
+    return res.json({ ok: true, scanned: closed.length, eligible: eligible.length, alerted, results })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_claude_anomaly_scan' }).catch(() => {})
+    return res.status(500).json({ ok: false, error: err.message || 'anomaly_scan_failed' })
   }
 }
 
