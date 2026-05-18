@@ -293,3 +293,24 @@ input[data-lpignore]::-webkit-credit-card-auto-fill-button {
   width: 0 !important;
   height: 0 !important;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TEST MODE — lift bottom-anchored toasts above the crimson MODO PRUEBA
+ * banner. TestModeFrame sets data-test-mode='1' on <html> when mounted; this
+ * rule pushes every fixed bottom-X toast / sticky pill up by the banner's
+ * height (~56px desktop incl. safe-area padding). Without this lift the
+ * banner physically covers the toast and the cashier never sees confirmations
+ * or errors flash by. (Reported 2026-05-18 by Mike on CAR WASH DJ test mode.)
+ * ──────────────────────────────────────────────────────────────────────────── */
+html[data-test-mode="1"] .fixed.bottom-4 {
+  bottom: calc(1rem + 56px + env(safe-area-inset-bottom, 0px)) !important;
+}
+html[data-test-mode="1"] .fixed.bottom-6 {
+  bottom: calc(1.5rem + 56px + env(safe-area-inset-bottom, 0px)) !important;
+}
+html[data-test-mode="1"] .fixed.bottom-20 {
+  bottom: calc(5rem + 56px + env(safe-area-inset-bottom, 0px)) !important;
+}
+/* The MODO PRUEBA banner itself + the mobile bottom-nav are pinned to the
+ * very bottom and SHOULD NOT be lifted by this rule. They use bottom-0 and
+ * bottom-16 respectively (z-index above this rule's targets). */

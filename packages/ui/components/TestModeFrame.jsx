@@ -1,8 +1,16 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 
 export default function TestModeFrame({ goLiveDate }) {
   const future = goLiveDate && new Date(`${goLiveDate}T00:00:00`).getTime() > Date.now()
+  // 2026-05-18 — flag the document so the global CSS in index.css can lift
+  // every fixed-bottom toast above this banner. Without it, the crimson bar
+  // covers ~56px and hides confirmation/error toasts from the cashier.
+  useEffect(() => {
+    document.documentElement.dataset.testMode = '1'
+    return () => { delete document.documentElement.dataset.testMode }
+  }, [])
   return (
     <>
       <div
