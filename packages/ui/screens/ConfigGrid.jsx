@@ -246,14 +246,14 @@ const ALL_CARDS = [
     to: '/config/updates',
     roles: ['owner'],
   },
-  {
-    id: 'tags',
-    icon: Tag,
-    title: { es: 'Etiquetas y categorías', en: 'Tags & categories' },
-    desc:  { es: 'Categorías de menú, etiquetas de inventario, ordenamiento.',
-             en: 'Menu categories, inventory tags, sort order.' },
-    to: '/config/servicios',
-  },
+  // 2026-05-18 — Removed 'Etiquetas y categorías' card. Pointed to the
+  // same /config/servicios destination as 'Servicios y precios' above,
+  // so it was a duplicate menu entry that confused owners ('why does
+  // clicking this open the same modal as the other one?'). Category
+  // management lives at the top of the Servicios screen already.
+  // Inventory tags live under /pos/inventory. If a standalone tag
+  // manager justifies its own card later, re-add here with a real
+  // dedicated route — not a dupe of /config/servicios.
   {
     id: 'devices',
     icon: Smartphone,
