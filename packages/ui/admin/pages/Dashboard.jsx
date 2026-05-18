@@ -75,6 +75,10 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
   // on any failure; click expands the failing checks.
   const [smokeHistory, setSmokeHistory] = useState([])
   const [smokeExpanded, setSmokeExpanded] = useState(false)
+  // Layer 3 — Cron Health (downstream side-effect verifier). Catches the silent
+  // 200-but-no-output failures that Layer 1 (HTTP) and Layer 2 (throws) miss.
+  const [cronHealth, setCronHealth] = useState([])
+  const [cronHealthExpanded, setCronHealthExpanded] = useState(false)
   const [showResolvedErrors, setShowResolvedErrors] = useState(false)
   const [catFilter, setCatFilter] = useState(null) // null | category string
   const [tierFilter, setTierFilter] = useState(null)   // null | 'gold' | 'silver' | 'bronze'
@@ -116,13 +120,14 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       let token = await refreshToken()
       if (!token) token = getToken()
       const headers = { 'Authorization': `Bearer ${token}` }
-      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp] = await Promise.all([
+      const [statsResp, feedResp, loyaltyResp, digestResp, errResp, smokeResp, cronHealthResp] = await Promise.all([
         fetch('/api/panel?action=stats', { headers }),
         fetch('/api/panel?action=activity_feed', { headers }),
         fetch('/api/panel?action=loyalty-overview', { headers }),
         fetch('/api/panel?action=digest-health', { headers }),
         fetch('/api/panel?action=errors_list&unresolved=1&limit=50', { headers }),
         fetch('/api/panel?action=deploy_smoke_history&limit=20', { headers }),
+        fetch('/api/panel?action=cron_health_history&limit=20', { headers }),
       ])
       if (statsResp.ok) setStats(await statsResp.json())
       if (feedResp.ok) { const f = await feedResp.json(); setFeed(f.data || []) }
@@ -130,6 +135,7 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
       if (digestResp.ok) setDigest(await digestResp.json())
       if (errResp.ok) setRecentErrors(((await errResp.json()).data) || [])
       if (smokeResp.ok) setSmokeHistory(((await smokeResp.json()).data) || [])
+      if (cronHealthResp.ok) setCronHealth(((await cronHealthResp.json()).data) || [])
     } catch (e) {
       try { (typeof window !== 'undefined') && window.__txReportError?.(e, { severity: 'error', category: 'dashboard.tick' }) } catch {} console.error('Dashboard load:', e) }
     setLoading(false)
@@ -309,6 +315,76 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                     <span className="font-bold">[{f.category}]</span> {f.check}
                     {f.expected ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>expected: {String(f.expected).slice(0, 200)}</span> : null}
                     {f.actual ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>actual: {String(f.actual).slice(0, 200)}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )
+      })()}
+
+      {/* Cron Health — Layer 3 downstream side-effect verifier. Catches the
+          silent 200-but-no-output failures that Layer 1 (HTTP) misses. Each cron
+          has an expected business-side row (digest activity_log, dgii last_pull_at,
+          anecf queue movement, smoke run insert) — if it's stale, we flag it. */}
+      {(() => {
+        const latest = cronHealth[0]
+        const failing = latest && latest.failed_count > 0
+        if (!latest) {
+          return (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              className={`rounded-2xl p-4 transition-colors ${cardBase} flex items-center justify-between`}>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <p className={`text-[13px] font-semibold ${isDark ? 'text-white/80' : 'text-black/80'}`}>
+                  {L('Cron Health — sin datos aún (verificador corre cada 30 min).', 'Cron Health — no data yet (verifier runs every 30 min).')}
+                </p>
+              </div>
+            </motion.div>
+          )
+        }
+        const ts = new Date(latest.ran_at)
+        const minsAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / 60000))
+        const dotColor = failing ? 'bg-red-500' : 'bg-emerald-500'
+        const bgTone = failing
+          ? (isDark ? 'border-red-500/40 bg-red-500/10' : 'border-red-500/40 bg-red-500/5')
+          : ''
+        return (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            className={`rounded-2xl p-5 transition-colors border ${cardBase} ${bgTone}`}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${failing ? 'animate-pulse' : ''}`} />
+                <div>
+                  <p className={`text-[14px] font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+                    {failing
+                      ? L(`Cron Health: ${latest.failed_count} cron${latest.failed_count === 1 ? '' : 's'} sin output de ${latest.total_checks}`,
+                            `Cron Health: ${latest.failed_count} cron${latest.failed_count === 1 ? '' : 's'} silent of ${latest.total_checks}`)
+                      : L(`Cron Health: ${latest.passed_count}/${latest.total_checks} OK`,
+                            `Cron Health: ${latest.passed_count}/${latest.total_checks} OK`)}
+                  </p>
+                  <p className={`text-[11px] mt-0.5 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                    {L(`Hace ${minsAgo} min · ${latest.duration_ms || 0}ms`,
+                       `${minsAgo}m ago · ${latest.duration_ms || 0}ms`)}
+                  </p>
+                </div>
+              </div>
+              {failing && (
+                <button onClick={() => setCronHealthExpanded(s => !s)}
+                  className={`text-[11px] font-bold px-3 py-1 rounded-full border transition-colors ${isDark ? 'border-red-400/40 text-red-300 hover:bg-red-500/10' : 'border-red-500/40 text-red-600 hover:bg-red-500/5'}`}>
+                  {cronHealthExpanded ? L('Ocultar', 'Hide') : L('Ver fallos', 'Show failures')}
+                </button>
+              )}
+            </div>
+            {failing && cronHealthExpanded && Array.isArray(latest.failures) && (
+              <div className="mt-3 space-y-1.5">
+                {latest.failures.map((f, i) => (
+                  <div key={i} className={`text-[11px] font-mono ${isDark ? 'text-white/70' : 'text-black/70'} pl-4 border-l-2 border-red-500`}>
+                    <span className="font-bold">{f.cron_path}</span>
+                    <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>
+                      expected within: {f.expected_within_hours}h · observed: {f.observed_at || 'never'}
+                    </span>
+                    {f.detail ? <span className={isDark ? 'block text-white/40' : 'block text-black/40'}>{f.detail}</span> : null}
                   </div>
                 ))}
               </div>
