@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/mega-smoke.mjs — Layer 6 CLI runner.
 //
-// Thin wrapper around web/lib/mega-smoke-runner.js so the local harness and
+// Thin wrapper around lib/mega-smoke-runner.js so the local harness and
 // the cron handler in /api/panel?action=cron_mega_smoke run identical code.
 //
 // USAGE:
@@ -19,7 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
-import { runMegaSmoke } from '../web/lib/mega-smoke-runner.js'
+import { runMegaSmoke } from '../lib/mega-smoke-runner.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 

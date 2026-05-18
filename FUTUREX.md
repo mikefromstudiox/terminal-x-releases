@@ -318,4 +318,30 @@ References:
 
 ## Tech debt
 
+- **Dual-source-of-truth drift (web/* ↔ repo-root)** — Vercel auto-detects functions at REPO ROOT (`/api/panel.js`, `/middleware.js`, `/lib/*`), but the rest of the API + Vite source lives under `web/`. We currently maintain TWO parallel trees:
+  - `/api/panel.js` (root, served by Vercel)  vs  `web/api/panel.js` (DEPRECATED, marked stale at top)
+  - `/middleware.js` (root, served by Vercel)  vs  `web/middleware.js` (DELETED 2026-05-18 after fabricated AggregateRating shipped because schema agent edited the wrong copy)
+  - `/lib/*` (root, used by `/api/panel.js`)  vs  `web/lib/*` (used by dist-web/api/* after `prepare-vercel.mjs` copies it)
+
+  This drift class has now bitten us THREE TIMES in three weeks:
+  1. **2026-05-09 → 2026-05-18 (9 days)** — `mega-smoke-runner.js` added to `web/lib/` only. `cron_mega_smoke` (`*/15 * * * *`) threw `MODULE_NOT_FOUND` every tick. Hidden until Mike checked the admin Errores panel. Patched 2026-05-18 by copying file + symmetric-mirror in `prepare-vercel.mjs`.
+  2. **2026-05-17** — Layer 3 `cron_health_verifier` 400'd every 30min because the action handler was edited in `web/api/panel.js` while Vercel served the root copy. Patched by deleting `web/api/panel.js`.
+  3. **~2026-05-18** — Schema agent edited `web/middleware.js`, root `/middleware.js` stayed stale, fabricated AggregateRating + Organization JSON-LD shipped to production. Patched by deleting `web/middleware.js`.
+
+  **Patches so far** (band-aids — keep working until they don't):
+  - `prepare-vercel.mjs` symmetric mirror of `web/lib/` ↔ `/lib/` (added 2026-05-18). Heals new drift at build time but only for `lib/`, not `api/` or `middleware`.
+  - Deprecation comments at the top of stale files telling humans not to edit them.
+
+  **Real fix (TBD — schedule sprint):** collapse to ONE source dir. Two viable shapes:
+  - **(A) Move everything to repo root.** Delete `web/api/`, `web/lib/`, `web/middleware.js`. Vite source stays under `web/src/` (or just `src/`). `prepare-vercel.mjs` shrinks to "copy `/api/`, `/lib/`, `/middleware.js` into `dist-web/` so the local manual deploy chain still works" — or we drop the manual chain entirely now that auto-deploy is canonical (memory `feedback_vercel_autodeploy_live.md`). Pros: zero drift surface, matches Vercel's expected layout. Cons: largest blast radius — touches every `web/api/*.js`, `web/lib/*.js`, dozens of `import` paths in scripts/, `vite.web.config.mjs`, `vercel.json buildCommand`, every README.
+  - **(B) Move everything under `web/`, kill the root duplicates.** Set Vercel `rootDirectory: web/` so auto-detect points there. Pros: smaller diff if most files already live under `web/`. Cons: `rootDirectory` interacts with `outputDirectory` in ways we haven't tested; risk of redoing the 2026-05-17 404-on-/pos incident.
+
+  **Plan-mode work before either path:**
+  1. Map every import edge: which scripts/agents read from `/lib/` vs `web/lib/`? (`grep -rn "from '../lib/" "from '../web/lib/" "from './lib/" "from './web/lib/"` across scripts/, electron/, packages/, web/, api/, root.)
+  2. List every Vercel-aware config touchpoint: `vercel.json` (root only since 2026-05-17), `prepare-vercel.mjs`, `vite.web.config.mjs`, `.vercel/project.json`.
+  3. Identify any cron / agent / external system that path-references the current layout (DGII receiver URLs are stable, but internal smoke runners may hardcode paths).
+  4. Pick a low-traffic window. Land it as ONE PR, deploy to a preview branch first, run full release gate (`rls-policy-audit.mjs` + `ranoza-e2e-smoke.mjs` + `restaurant-e2e-smoke.mjs` + `audit-flows.mjs`) on the preview before merging to main.
+
+  **Why this is urgent-but-not-emergent:** the symmetric mirror in `prepare-vercel.mjs` covers `lib/` only. The same class of bug can still ship via a misedited `/api/panel.js` or `/middleware.js` because there's no equivalent guard for those — they're single-file roots with stale ghosts under `web/` that humans/agents can still touch. Next incident is when (not if) an agent edits `web/api/panel.js` thinking it's live and our admin Errores panel surfaces it days later.
+
 - **Vite v5.4.21 unpatched CVE GHSA-4w7w-66w2-5vf9** (path traversal in `.map` handling). Upgrade to v8 deferred — breaking change (no patched 5.x or 6.x exists; advisory range is `<=6.4.1`, fix only in v8.0.0+). Risk: **dev-server only, not production** — bundled output is unaffected. Mitigation: never expose Vite dev server (`npm run dev` / `dev:web`) to a network interface; bind to localhost only; `.map` files are served only locally during development. Action: schedule v8 migration sprint (review breaking changes in plugin API + SSR + CSS handling). Audited 2026-04-25 alongside postcss 8.5.8 → 8.5.10 patch.

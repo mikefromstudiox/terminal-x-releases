@@ -29,9 +29,9 @@ const desktopClient = require('../electron/dgii-client.js')      // CJS
 const desktopBuilder = require('../electron/xml-builder.js')     // CJS
 
 // Web ESM signer
-const webSigner = await import('../web/lib/xml-signer.js')
-const webClient = await import('../web/lib/dgii-client.js')
-const webBuilder = await import('../web/lib/xml-builder.js')
+const webSigner = await import('../lib/xml-signer.js')
+const webClient = await import('../lib/dgii-client.js')
+const webBuilder = await import('../lib/xml-builder.js')
 
 // Reserve next eNCF
 const { data: seq } = await sb.from('ncf_sequences')

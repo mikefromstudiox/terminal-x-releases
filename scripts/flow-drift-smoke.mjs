@@ -2,7 +2,7 @@
 // scripts/flow-drift-smoke.mjs
 //
 // LAYER 4 — Flow-drift smoke CLI runner. Thin wrapper around
-// web/lib/flow-drift-runner.js so the harness and the cron handler in
+// lib/flow-drift-runner.js so the harness and the cron handler in
 // api/panel.js?action=cron_flow_drift_smoke run identical code paths.
 //
 // WHY: On 2026-05-17 queue.ticket_id stayed NULL on web-created queue rows.
@@ -23,7 +23,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
-import { runFlowDrift } from '../web/lib/flow-drift-runner.js'
+import { runFlowDrift } from '../lib/flow-drift-runner.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 

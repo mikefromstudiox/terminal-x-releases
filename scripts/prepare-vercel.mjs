@@ -46,12 +46,18 @@ copyFileSync(join(ROOT, 'web/api/signup/provision.js'), join(DIST, 'api/signup/p
 copyFileSync(join(ROOT, 'web/api/signup/lead.js'),     join(DIST, 'api/signup/lead.js'))
 copyFileSync(join(ROOT, 'web/api/digest/daily.js'),    join(DIST, 'api/digest/daily.js'))
 
-// All web/lib/*.js — wildcard per CLAUDE.md hard-rule (cherry-picking caused
-// FUNCTION_INVOCATION_FAILED in past deploys when new lib files were added).
-const libDir = join(ROOT, 'web/lib')
-for (const f of readdirSync(libDir)) {
-  if (f.endsWith('.js')) copyFileSync(join(libDir, f), join(DIST, 'lib', f))
-}
+// LIB — copy repo-root /lib/ → dist-web/lib/. Single source of truth.
+//
+// History: pre-2026-05-18 this copied from web/lib/, and a parallel /lib/
+// at repo root served the auto-detected /api/panel.js Vercel function. The
+// dual-tree caused 3 silent drift incidents in 3 weeks (mega-smoke-runner,
+// cron_health_verifier, fabricated AggregateRating). Stage 1 of the
+// collapse (FUTUREX §Tech debt) made /lib/ canonical: all scripts and the
+// dist-web build read from here. web/lib/ remains in source temporarily
+// as a fallback during the staged rollout; Stage 2 deletes it.
+const rootLibDir = join(ROOT, 'lib')
+const libFiles = readdirSync(rootLibDir).filter(f => f.endsWith('.js'))
+for (const f of libFiles) copyFileSync(join(rootLibDir, f), join(DIST, 'lib', f))
 
 // Middleware + project link
 // 2026-05-18 — web/middleware.js DELETED. Same dual-file drift class that

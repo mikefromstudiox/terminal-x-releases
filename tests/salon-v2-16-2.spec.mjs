@@ -437,13 +437,13 @@ async function main() {
   // 7. 2h template fallback "tu equipo"
   // ============================================================
   // v2.16.2 — converted from MANUAL VERIFY to a contract test by importing
-  // the locked templates + helper from web/lib/salon-wa-templates.js.
+  // the locked templates + helper from lib/salon-wa-templates.js.
   // panel.js's processReminder() applies the same `'tu equipo'` fallback
   // inline; this test verifies the template + the resolveReminderVars()
   // helper that encapsulates the fallback rule produce a deliverable body.
   await withTest(7, '2h template fallback "tu equipo"', async () => {
     const { SALON_WA_TEMPLATES, fillTemplate, resolveReminderVars } =
-      await import('../web/lib/salon-wa-templates.js')
+      await import('../lib/salon-wa-templates.js')
     // Sanity: the locked 2h template still references {stylist}.
     if (!/\{stylist\}/.test(SALON_WA_TEMPLATES['2h'])) {
       return { ok: false, detail: '2h template no longer references {stylist} — locked copy drifted' }
