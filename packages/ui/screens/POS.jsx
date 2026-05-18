@@ -1204,6 +1204,16 @@ function ServicePOS() {
           rnc:     empresa?.rnc       || '',
           logo:    empresa?.logo      || '',
           commercial_name: (cfg?.biz_commercial_name || '').trim(),
+          // v2.16.30 — surface email / instagram / website for the optional
+          // header contact-extra line (receipt_show_contact_extra). Dual-keyed
+          // against app_settings to match the dual-storage Mi Empresa pattern.
+          email:     empresa?.email      || cfg?.biz_email     || '',
+          website:   cfg?.biz_website    || '',
+          instagram: cfg?.biz_instagram  || '',
+          // v2.16.30 — business_type drives per-vertical receipt defaults
+          // (see packages/config/receiptDefaults.js). Read from app_settings
+          // first (single source of truth), fall back to the businesses row.
+          business_type: cfg?.business_type || cfg?.biz_business_type || empresa?.business_type || empresa?.biz_type || '',
           settings: empresa?.settings || {},
         }
         const { subtotal: sub, itbis: itp, ley: ly, total: tot } = calcTotals(pending.items, itbisRate)
@@ -1262,6 +1272,10 @@ function ServicePOS() {
               return acc + amt
             }, 0).toFixed(2))
           })(),
+          // v2.16.30 — threads precomputed loyalty pts so the receipt's
+          // Acumulas/Saldo block renders without re-querying the ledger
+          // (awardLoyaltyPoints fires fire-and-forget downstream).
+          loyaltyEarned: Number(paymentData.loyaltyEarned || 0),
           cfg,
         }
         // v2.14.34 — await factura BEFORE conduce loop so the printer queues
@@ -3118,6 +3132,11 @@ function RetailPOS() {
           rnc: empresa?.rnc || '',
           logo: empresa?.logo || '',
           commercial_name: (cfg?.biz_commercial_name || '').trim(),
+          // v2.16.30 — header contact-extra + per-vertical receipt defaults.
+          email:     empresa?.email      || cfg?.biz_email     || '',
+          website:   cfg?.biz_website    || '',
+          instagram: cfg?.biz_instagram  || '',
+          business_type: cfg?.business_type || cfg?.biz_business_type || empresa?.business_type || empresa?.biz_type || '',
           settings: empresa?.settings || {},
         }
         const ticketData = {
@@ -3142,6 +3161,10 @@ function RetailPOS() {
           signatureDate: paymentData.ecf?.signatureDate || null,
           securityCode: paymentData.ecf?.securityCode || null,
           qrLink: paymentData.ecf?.qrLink || null,
+          // v2.16.30 — loyalty earned + cfg for the receipt's Acumulas/Saldo block
+          // and the per-business-type flag resolver.
+          loyaltyEarned: Number(paymentData.loyaltyEarned || 0),
+          cfg,
         }
         if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})
         saveReceiptPDF(ticketData).catch(() => {})

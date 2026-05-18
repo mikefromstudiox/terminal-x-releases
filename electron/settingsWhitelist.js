@@ -29,6 +29,18 @@ const BUSINESS_SETTING_KEYS = new Set([
   // Per-business receipt customization (v1)
   'receipt_show_itbis_pct',
   'receipt_show_commission',
+  'conduce_show_commission',
+  // v2.16.30 — 9-flag receipt overhaul (see packages/config/receiptDefaults.js).
+  'receipt_show_sku',
+  'receipt_show_unit_price',
+  'receipt_show_exempt_label',
+  'receipt_show_client_address',
+  'receipt_show_servicio_ley',
+  'receipt_show_credit_ref',
+  'receipt_show_vehicle_details',
+  'receipt_show_contact_extra',
+  'receipt_show_loyalty',
+  'receipt_footer_message',
   // Facturación tier custom branding (v2.16.5) — invoice footer + logo URL.
   'invoice_footer',
   'logo_url',

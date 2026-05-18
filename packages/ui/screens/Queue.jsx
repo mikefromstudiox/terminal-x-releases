@@ -712,6 +712,12 @@ export default function Queue() {
         phone:   empresa?.telefono  || empresa?.phone   || '',
         rnc:     empresa?.rnc       || '',
         logo:    empresa?.logo      || '',
+        commercial_name: (cfg?.biz_commercial_name || '').trim(),
+        // v2.16.30 — header contact-extra + per-vertical receipt defaults.
+        email:     empresa?.email      || cfg?.biz_email     || '',
+        website:   cfg?.biz_website    || '',
+        instagram: cfg?.biz_instagram  || '',
+        business_type: cfg?.business_type || cfg?.biz_business_type || empresa?.business_type || empresa?.biz_type || '',
         settings: empresa?.settings || {},
       }
       const services = snapshot.services || []

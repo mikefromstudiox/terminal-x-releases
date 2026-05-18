@@ -12,6 +12,15 @@
 
 import { formatPhoneForReceipt } from './phone.js'
 import { enqueuePrint } from './printQueue.js'
+import {
+  resolveReceiptFlag,
+  resolveReceiptFooter,
+  RECEIPT_DEFAULT_FOOTER,
+} from '../config/receiptDefaults.js'
+
+// Re-export so callers outside printer.js (Sistema.jsx UI, dataLEAKS scripts)
+// can share the same resolution logic without importing two modules.
+export { resolveReceiptFlag, resolveReceiptFooter, RECEIPT_DEFAULT_FOOTER }
 
 // ── ESC/POS command constants ─────────────────────────────────────────────────
 const ESC  = '\x1B'
@@ -213,7 +222,13 @@ async function buildLogoEscPos(logoInput) {
 
 // ── Business header ───────────────────────────────────────────────────────────
 // logoBytes: optional pre-computed ESC/POS bitmap string (from buildLogoEscPos)
-function buildHeader(biz, logoBytes = '') {
+// showContactExtra: when true, append a second muted line with email +
+//   @instagram + website (whichever are present in biz). Truncated to fit
+//   COL_WIDTH (42). Default true preserves the pre-v2.16.30 callsites that
+//   don't thread the flag (PreTicket, PreCuenta, ANECF, Cuadre — they all
+//   want the contact line visible). v2.16.30 buildClientReceipt routes the
+//   `receipt_show_contact_extra` toggle through here.
+function buildHeader(biz, logoBytes = '', showContactExtra = true) {
   // Receipt header:
   //   • If we have a logo, print ONLY the logo — no redundant business
   //     name text. The logo IS the brand. DGII XML still carries the
@@ -266,12 +281,50 @@ function buildHeader(biz, logoBytes = '') {
   if (biz.phone) contact.push(formatPhoneForReceipt(biz.phone))
   if (biz.rnc) contact.push('RNC ' + biz.rnc)
   if (contact.length) { parts.push(contact.join('   '), LF) }
+  // v2.16.30 — optional second contact line: email + @instagram + website.
+  // Each segment skipped when missing; whole line skipped when none present
+  // or when the owner disabled receipt_show_contact_extra. Reads from biz
+  // object (dual-keyed against settings JSON inside the caller).
+  if (showContactExtra) {
+    try {
+      const s = typeof biz.settings === 'string' ? JSON.parse(biz.settings) : (biz.settings || {})
+      const email   = String(biz.email   || s.biz_email   || '').trim()
+      const ig      = String(biz.instagram || s.biz_instagram || s.instagram || '').trim()
+      const website = String(biz.website || s.biz_website || s.website || '').trim()
+      const segs = []
+      if (email)   segs.push(email)
+      if (ig)      segs.push(ig.startsWith('@') ? ig : ('@' + ig.replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '')))
+      if (website) segs.push(website.replace(/^https?:\/\//i, ''))
+      if (segs.length) {
+        // Pack segments greedily across as many lines as needed; truncate any
+        // single segment longer than COL_WIDTH to keep the layout tight.
+        let line = ''
+        for (const seg of segs) {
+          const piece = seg.length > COL_WIDTH ? seg.slice(0, COL_WIDTH) : seg
+          if (!line) { line = piece; continue }
+          if (line.length + 3 + piece.length <= COL_WIDTH) {
+            line = line + '   ' + piece
+          } else {
+            parts.push(line, LF)
+            line = piece
+          }
+        }
+        if (line) { parts.push(line, LF) }
+      }
+    } catch {}
+  }
   parts.push(ALIGN_LEFT, LF)
   return parts.join('')
 }
 
 // ── Footer ────────────────────────────────────────────────────────────────────
-function buildFooter() {
+// v2.16.30 — `message` is owner-customizable (Sistema → Personalización de
+// Recibo → "Mensaje al pie"). Falls back to the canonical default when
+// unset/empty so existing callers (PreCuenta, ANECF, Cuadre) keep prior look.
+function buildFooter(message) {
+  const msg = (typeof message === 'string' && message.trim())
+    ? message.trim().slice(0, COL_WIDTH)
+    : RECEIPT_DEFAULT_FOOTER
   // ALIGN_CENTER must come BEFORE any LF/printable — some Epson-spec
   // thermals ignore alignment changes that arrive mid-line, which left
   // the GRACIAS block flush-left on certain models.
@@ -279,7 +332,7 @@ function buildFooter() {
     ALIGN_CENTER,
     LF,
     BOLD_ON,
-    'GRACIAS POR SU PREFERENCIA',
+    msg,
     LF,
     BOLD_OFF,
     'Conserve este comprobante',
@@ -321,10 +374,30 @@ export function buildClientReceipt(data, logoBytes = '') {
   const isCredito = ['E31', 'B01'].includes(data.ncfType)
   const factType  = isCredito ? 'FACTURA DE CREDITO FISCAL' : 'FACTURA CONSUMIDOR FINAL'
 
+  // v2.16.30 — resolve all per-business-type receipt flags up front. Cfg from
+  // app_settings wins over the per-vertical default; default `false` when
+  // neither is present. See packages/config/receiptDefaults.js for the matrix.
+  const cfg = data.cfg || {}
+  const bizType = data.biz?.business_type || data.biz?.biz_business_type || data.businessType || ''
+  const flag = (key) => resolveReceiptFlag(cfg, bizType, key)
+  const showSku           = flag('receipt_show_sku')
+  const showUnitPrice     = flag('receipt_show_unit_price')
+  const showExemptLabel   = flag('receipt_show_exempt_label')
+  const showClientAddress = flag('receipt_show_client_address')
+  const showCreditRef     = flag('receipt_show_credit_ref')
+  const showVehicleDetails= flag('receipt_show_vehicle_details')
+  const showContactExtra  = flag('receipt_show_contact_extra')
+  const showLoyalty       = flag('receipt_show_loyalty')
+  // receipt_show_servicio_ley gates whether to RENDER the Ley line when the
+  // ticket carries `data.ley > 0`. The amount itself is still computed up-
+  // stream — this flag simply hides the printed line for verticals that
+  // don't want it on the customer copy (e.g. carwash).
+  const showServicioLey   = flag('receipt_show_servicio_ley')
+
   const lines = []
 
-  // Header (business brand block)
-  lines.push(buildHeader(data.biz || {}, logoBytes))
+  // Header (business brand block) — contact-extra line gated.
+  lines.push(buildHeader(data.biz || {}, logoBytes, showContactExtra))
 
   // Invoice-type caption — centered bold, no inverse (user preferred
   // no black shaded background). Keeps hierarchy via BOLD + an underline
@@ -345,6 +418,17 @@ export function buildClientReceipt(data, logoBytes = '') {
     ['DOC',     data.docNo || '-'],
     ['NCF',     data.ncf || '-'],
   ]
+  // v2.16.30 — Credit-note reference line. Only on E33 (NC e-CF, > 250K) and
+  // E34 (NC consumidor final). The original ticket's eNCF is threaded by the
+  // caller as `data.referenceNcf` (or legacy `data.modifies_ncf`); when neither
+  // is present the line is silently skipped. DGII normative §2.7 requires the
+  // ENCFModificado element in the XML; this just makes the paper copy match.
+  const ncfUpper = String(data.ncf || '').toUpperCase()
+  const isCreditNote = /^E3[34]/.test(ncfUpper)
+  const refNcf = String(data.referenceNcf || data.modifies_ncf || '').trim()
+  if (showCreditRef && isCreditNote && refNcf) {
+    docRows.push(['MODIFICA NCF', refNcf])
+  }
   if (data.cajero)  docRows.push(['CAJERO',  data.cajero])
   if (data.lavador) docRows.push(['LAVADOR', data.lavador])
   // v2.17 — Food Truck: parking spot + active-event banner on the receipt.
@@ -368,15 +452,38 @@ export function buildClientReceipt(data, logoBytes = '') {
     if (clientName)  { lines.push(cols('CLIENTE', clientName, COL_WIDTH)); lines.push(LF) }
     if (clientRnc)   { lines.push(cols('RNC',     clientRnc,  COL_WIDTH)); lines.push(LF) }
     if (clientPhone) { lines.push(cols('TEL',     formatPhoneForReceipt(clientPhone), COL_WIDTH)); lines.push(LF) }
-    if (data.vehiclePlate) { lines.push(cols('VEHICULO', data.vehiclePlate, COL_WIDTH)); lines.push(LF) }
-    // v2.16.0 — mecánica: VIN + make/model + odómetro printed when present (work order receipts)
-    if (data.vehicleVin) { lines.push(cols('VIN', String(data.vehicleVin).slice(0, 26), COL_WIDTH)); lines.push(LF) }
-    if (data.vehicleMake || data.vehicleModel) {
-      const mm = [data.vehicleMake, data.vehicleModel].filter(Boolean).join(' ')
-      lines.push(cols('MARCA/MODELO', mm.slice(0, 26), COL_WIDTH)); lines.push(LF)
+    // v2.16.30 — Client address. Defaults on for E31 (credito fiscal — DGII
+    // normative completeness), off elsewhere unless the owner toggles on.
+    // The flag answers "is the receipt allowed to print address at all"; the
+    // E31 / non-E31 gate decides whether to print by default. Owners who flip
+    // the flag on AND don't have E31 still get the line — that's the intent.
+    const clientAddr = String(data.client?.address || data.client_address || '').trim()
+    if (showClientAddress && clientAddr) {
+      const isE31 = /^E31/.test(ncfUpper)
+      const ownerOverride = (cfg.receipt_show_client_address === '1' || cfg.receipt_show_client_address === true)
+      if (isE31 || ownerOverride) {
+        wrapText(clientAddr, COL_WIDTH - 14).forEach((l, i) => {
+          if (i === 0) lines.push(cols('DIRECCION', l, COL_WIDTH))
+          else         lines.push('             ' + l)
+          lines.push(LF)
+        })
+      }
     }
-    if (data.vehicleKm != null && data.vehicleKm !== '') {
-      lines.push(cols('KILOMETRAJE', `${Number(data.vehicleKm).toLocaleString('en-US')} KM`, COL_WIDTH)); lines.push(LF)
+    if (data.vehiclePlate) { lines.push(cols('VEHICULO', data.vehiclePlate, COL_WIDTH)); lines.push(LF) }
+    // v2.16.0 — mecánica: VIN + make/model + odómetro printed when present.
+    // v2.16.30 — gated on receipt_show_vehicle_details so non-vehicular
+    // verticals don't render an empty-looking MARCA/MODELO line if the cashier
+    // accidentally types VIN into a salon ticket. Defaults: on for carwash /
+    // mechanic / dealership; off elsewhere.
+    if (showVehicleDetails) {
+      if (data.vehicleVin) { lines.push(cols('VIN', String(data.vehicleVin).slice(0, 26), COL_WIDTH)); lines.push(LF) }
+      if (data.vehicleMake || data.vehicleModel || data.vehicleYear) {
+        const mm = [data.vehicleYear, data.vehicleMake, data.vehicleModel].filter(Boolean).join(' ')
+        lines.push(cols('MARCA/MODELO', mm.slice(0, 26), COL_WIDTH)); lines.push(LF)
+      }
+      if (data.vehicleKm != null && data.vehicleKm !== '') {
+        lines.push(cols('KILOMETRAJE', `${Number(data.vehicleKm).toLocaleString('en-US')} KM`, COL_WIDTH)); lines.push(LF)
+      }
     }
     lines.push(cols('TIPO VENTA', data.tipo === 'credito' ? 'Credito' : 'Contado', COL_WIDTH))
     lines.push(LF)
@@ -432,6 +539,30 @@ export function buildClientReceipt(data, logoBytes = '') {
       })
     } else {
       lines.push(cols(name, totalAmt, COL_WIDTH))
+      lines.push(LF)
+    }
+    // v2.16.30 — SKU / barcode sub-line, indented + muted. Defaults on for
+    // retail-style verticals (retail/licoreria/meat_market/mechanic/dealership).
+    // Truncated to fit the 42-char width.
+    const sku = String(s.sku || s.barcode || '').trim()
+    if (showSku && sku) {
+      lines.push(('  SKU: ' + sku).slice(0, COL_WIDTH))
+      lines.push(LF)
+    }
+    // v2.16.30 — per-unit price echo on multi-qty lines. Skipped on weighted
+    // items (the weight line already exposes price-per-unit naturally) and
+    // single-qty lines (the line total IS the unit price). Helps customers
+    // sanity-check "3x Bistec  RD$ 750" against "Bistec @ RD$ 250".
+    if (showUnitPrice && weight == null && qty > 1) {
+      const unitFmt = fmt(s.price)
+      lines.push(('  ' + String(s.name) + ' @ ' + unitFmt).slice(0, COL_WIDTH))
+      lines.push(LF)
+    }
+    // v2.16.30 — EXENTO marker for ITBIS-0 items. DGII normative — customer
+    // must see which lines were exempt. Always on by default across verticals.
+    const isExempt = (s.aplica_itbis === false || Number(s.aplica_itbis) === 0)
+    if (showExemptLabel && isExempt) {
+      lines.push('  [EXENTO ITBIS]')
       lines.push(LF)
     }
     // Per-item secondary info (weight pricing only) — indented, muted.
@@ -494,8 +625,12 @@ export function buildClientReceipt(data, logoBytes = '') {
     lines.push(cols('Comisión', fmt(Number(data.commTotal)), COL_WIDTH))
     lines.push(LF)
   }
-  if (data.ley > 0) {
-    lines.push(cols('Ley 10%', fmt(data.ley), COL_WIDTH))
+  // v2.16.30 — Ley 16-92 (10% servicio) line. Defaults ON for restaurant +
+  // food_truck (where dine-in tips are normative under DR Ley 16-92), OFF
+  // elsewhere — a carwash with `data.ley > 0` typed in error won't surprise-
+  // print a Servicio line on the customer copy.
+  if (data.ley > 0 && showServicioLey) {
+    lines.push(cols('Servicio Ley 10%', fmt(data.ley), COL_WIDTH))
     lines.push(LF)
   }
 
@@ -510,6 +645,31 @@ export function buildClientReceipt(data, logoBytes = '') {
   lines.push(BOLD_OFF)
   lines.push(LF)
   lines.push(LF)
+
+  // v2.16.30 — Loyalty block. Rendered only when:
+  //   1. flag on (default true; per-business override available)
+  //   2. real client attached (no guest receipts get loyalty noise)
+  //   3. either points earned THIS ticket OR a balance > 0 on file
+  // Earned amount must be threaded by the caller as `data.loyaltyEarned`
+  // (see CobrarModal.awardLoyaltyPoints wiring). Balance read from the
+  // attached client row (clients.loyalty_points).
+  const loyaltyEarned = Math.max(0, Number(data.loyaltyEarned || data.loyalty_earned || 0))
+  const loyaltyBalance = Math.max(0, Number(data.client?.loyalty_points || 0))
+  if (showLoyalty && data.client?.id && (loyaltyEarned > 0 || loyaltyBalance > 0)) {
+    if (loyaltyEarned > 0) {
+      lines.push(cols('Acumulas', '+' + loyaltyEarned.toLocaleString('en-US') + ' pts', COL_WIDTH))
+      lines.push(LF)
+    }
+    if (loyaltyBalance > 0) {
+      // Balance shown reflects post-award state when earned > 0 (caller
+      // already credited the points before we render — `clients.loyalty_points`
+      // is fresh). When earned === 0 it's a redemption-pending receipt and
+      // the balance is the pre-spend total.
+      lines.push(cols('Saldo total', loyaltyBalance.toLocaleString('en-US') + ' pts', COL_WIDTH))
+      lines.push(LF)
+    }
+    lines.push(LF)
+  }
 
   // ── QR / e-CF verification (fiscal electronic only)
   if (data.ncf && data.ncf.startsWith('E')) {
@@ -536,7 +696,10 @@ export function buildClientReceipt(data, logoBytes = '') {
     lines.push(ALIGN_LEFT)
   }
 
-  lines.push(buildFooter())
+  // v2.16.30 — owner-customizable footer message (Sistema → Personalización
+  // de Recibo → "Mensaje al pie"). Falls back to canonical GRACIAS POR SU
+  // PREFERENCIA. Capped at COL_WIDTH (42) inside resolveReceiptFooter.
+  lines.push(buildFooter(resolveReceiptFooter(cfg)))
   return lines.join('')
 }
 

@@ -29,6 +29,18 @@ export const BUSINESS_SETTING_KEYS = new Set([
   'receipt_show_itbis_pct',
   'receipt_show_commission',
   'conduce_show_commission',
+  // v2.16.30 — 9-flag receipt overhaul (see packages/config/receiptDefaults.js).
+  // All cloud-synced so every register in a business inherits the same shape.
+  'receipt_show_sku',
+  'receipt_show_unit_price',
+  'receipt_show_exempt_label',
+  'receipt_show_client_address',
+  'receipt_show_servicio_ley',
+  'receipt_show_credit_ref',
+  'receipt_show_vehicle_details',
+  'receipt_show_contact_extra',
+  'receipt_show_loyalty',
+  'receipt_footer_message',
   // Facturación tier custom branding (v2.16.5) — invoice footer string and a
   // logo URL (PNG/JPG) rendered on the crimson header band of every PDF.
   'invoice_footer',

@@ -342,18 +342,33 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
           paidAt: new Date(), client: client || null, services: svcs,
           subtotal: subtotal || 0, itbis: itbis || 0, ley: ley || 0,
           descuento: 0, total: total || 0, formaPago: formaPago || 'Efectivo',
-          biz: { name: bName, address: bizSettings?.biz_address || '', phone: bizSettings?.biz_phone || '', rnc: bRnc, settings: { ciudad: bizSettings?.ciudad || bizSettings?.biz_city || '' } },
+          biz: {
+            name: bName,
+            address: bizSettings?.biz_address || '',
+            phone: bizSettings?.biz_phone || '',
+            rnc: bRnc,
+            // v2.16.30 — surface email/IG/website + business_type so the PDF
+            // honors the same receipt_show_contact_extra + per-vertical
+            // defaults as the thermal print.
+            email:     bizSettings?.biz_email     || '',
+            website:   bizSettings?.biz_website   || '',
+            instagram: bizSettings?.biz_instagram || '',
+            business_type: bizSettings?.business_type || bizSettings?.biz_business_type || '',
+            settings: { ciudad: bizSettings?.ciudad || bizSettings?.biz_city || '' },
+          },
           signatureDate: ecfResult?.signatureDate || null,
           securityCode:  ecfResult?.securityCode || null,
           qrLink:        ecfResult?.qrLink || null,
-          // Thread the receipt-customization toggles (ITBIS %, etc.) so the
-          // WhatsApp-sent PDF honors Sistema → Personalización de Recibo just
-          // like the printed thermal receipt does.
-          cfg: {
-            itbis_pct: bizSettings?.itbis_pct,
-            receipt_show_itbis_pct: bizSettings?.receipt_show_itbis_pct,
-            receipt_show_commission: bizSettings?.receipt_show_commission,
-          },
+          // v2.16.30 — pass the FULL bizSettings as cfg so every receipt_*
+          // flag + customizable footer + loyalty-show resolves identically
+          // between thermal print and WhatsApp PDF. Spreading is safe because
+          // pdf.js / printer.js only read keys they recognise.
+          cfg: { ...(bizSettings || {}) },
+          // Threaded loyalty earned so the PDF's Acumulas/Saldo block (when
+          // pdf.js gains parity) renders the same numbers as the thermal copy.
+          loyaltyEarned: (selectedClient?.id && loyaltyEnabled)
+            ? loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
+            : ((selectedClient?.id && isSalon) ? loyaltyPointsFor(total, 100) : 0),
         }
         const { base64, filename } = await buildReceiptPDFBase64(pdfData)
         await api.whatsapp.sendDocument({ to, base64, filename, caption: `${bName} - Recibo #${docNo}` })
@@ -1397,6 +1412,14 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           // post-tickets.create using the resulting ticket_supabase_id).
           lineStylists: buildLineStylistsPayload(),
           redemptions:  buildRedemptionsPayload(),
+          // v2.16.30 — pre-computed loyalty points so the printed receipt
+          // can show the Acumulas/Saldo block without re-querying the
+          // ledger. Mirrors the same math awardLoyaltyPoints will run
+          // fire-and-forget after onConfirm resolves. Zero when loyalty
+          // disabled, no client, or amount sub-ratio.
+          loyaltyEarned: (selectedClient?.id && loyaltyEnabled)
+            ? loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
+            : ((selectedClient?.id && isSalon) ? loyaltyPointsFor(total, 100) : 0),
           ecf:       legacyResult,
           })
           // onConfirm resolved → ticket landed in DB. Now show the success
@@ -1612,6 +1635,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
           // post-tickets.create using the resulting ticket_supabase_id).
           lineStylists: buildLineStylistsPayload(),
           redemptions:  buildRedemptionsPayload(),
+          // v2.16.30 — see legacy-path comment above; same precompute.
+          loyaltyEarned: (selectedClient?.id && loyaltyEnabled)
+            ? loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
+            : ((selectedClient?.id && isSalon) ? loyaltyPointsFor(total, 100) : 0),
           ecf:       result,
           })
           setEcfState('success')
@@ -1700,6 +1727,10 @@ export default function CobrarModal({ ticket, onConfirm, onClose, forceNcfType =
             items:     effectiveItems,
             lineStylists: buildLineStylistsPayload(),
             redemptions:  buildRedemptionsPayload(),
+            // v2.16.30 — test-mode receipts still surface loyalty earnings.
+            loyaltyEarned: (selectedClient?.id && loyaltyEnabled)
+              ? loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
+              : ((selectedClient?.id && isSalon) ? loyaltyPointsFor(total, 100) : 0),
             ecf:       null,
             testMode:  true,
             })
