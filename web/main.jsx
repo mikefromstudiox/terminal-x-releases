@@ -375,6 +375,13 @@ function PageLoader() {
 // SupabaseAuthGate — blocks POS rendering until user is authenticated
 // ---------------------------------------------------------------------------
 function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAPI, startOfflineSync }) {
+  // MUST be declared before any early return — the `if (!supabase)` branch
+  // below references DataProvider and previously this const lived after
+  // those returns, producing a TDZ "Cannot access E before initialization"
+  // crash that white-screened every user without a supabase client on first
+  // render. (Discovered 2026-05-17 after the middleware fix exposed the
+  // bundle-level bug that CSP-blocked scripts had been hiding.)
+  const DataProvider = React.lazy(() => import('@/context/DataContext').then(m => ({ default: m.DataProvider })))
   const [session, setSession]       = useState(null)
   const [businessId, setBusinessId] = useState(null)
   const [loading, setLoading]       = useState(true)
@@ -561,8 +568,7 @@ function SupabaseAuthGate({ children, supabase, createWebAPI, createWebPrinterAP
     )
   }
 
-  // Need to import DataProvider from the lazy-loaded module
-  const DataProvider = React.lazy(() => import('@/context/DataContext').then(m => ({ default: m.DataProvider })))
+  // (DataProvider const moved to top of function — see TDZ note there.)
 
   // Tenant-isolation: keying the entire DataProvider subtree on
   // `effectiveBid:user.id` forces a full unmount + remount whenever the
