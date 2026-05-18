@@ -941,7 +941,7 @@ export default function LandingPage({ section, forceLang }) {
                     {L('e-CF Directo DGII — Certificado', 'Direct e-CF DGII — Certified')}
                   </div>
                 )}
-                <div className={`rounded-lg px-3 py-2 mb-5 text-xs font-semibold ${plan.highlight ? 'bg-[#b3001e]/20 text-[#b3001e]' : 'bg-white/5 text-white/50'}`}>
+                <div className={`rounded-lg px-3 py-2 mb-5 text-xs font-semibold ${plan.highlight ? 'bg-[#b3001e] text-white' : 'bg-white/5 text-white/70'}`}>
                   <Headphones size={12} className="inline mr-1.5" />
                   {plan.support}
                 </div>
