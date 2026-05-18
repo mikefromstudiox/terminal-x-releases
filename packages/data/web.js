@@ -842,7 +842,7 @@ export function createWebAPI(supabase, businessId) {
         // Map `logo` → `logo_url` (Supabase column name differs from desktop)
         if ('logo' in patch) { patch.logo_url = patch.logo; delete patch.logo }
         if (!Object.keys(patch).length) return null
-        throwSupaError(await supabase.from('businesses').update(patch).eq('id', bid).select('id'))
+        await assertAffected(supabase.from('businesses').update(patch).eq('id', bid).select('id'), 'web.businesses.update')
       }),
 
       getUsuarios: () => tryOr(async () => {
