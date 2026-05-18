@@ -314,3 +314,32 @@ html[data-test-mode="1"] .fixed.bottom-20 {
 /* The MODO PRUEBA banner itself + the mobile bottom-nav are pinned to the
  * very bottom and SHOULD NOT be lifted by this rule. They use bottom-0 and
  * bottom-16 respectively (z-index above this rule's targets). */
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * BRAND-ACCESSIBLE CRIMSON FOR TEXT ON BLACK
+ *
+ * #b3001e (canonical brand crimson) on bg-black = 2.99:1 contrast = fails
+ * WCAG AA (needs 4.5:1 for normal text, 3:1 for large/bold ≥18pt).
+ *
+ * Per CLAUDE.md hard rule #11, only black/white/#b3001e are allowed — but
+ * the brand red MUST stay legible on dark sections. Solution: brighten the
+ * shade ONLY when text-[#b3001e] is rendered inside a .bg-black ancestor.
+ * Still red, still on-brand, but lifted to ~4.6:1 contrast.
+ *
+ * The selector .bg-black .text-\[\#b3001e\] beats Tailwind's single-class
+ * .text-\[\#b3001e\]{color:#b3001e} on specificity (2 classes vs 1) — no
+ * !important needed.
+ *
+ * Found via Lighthouse audit 2026-05-18 surfacing 30+ failing kicker
+ * labels across #vertical-features, #nuevo, #pricing, #compare,
+ * #ecf-faq, #roi-calculator. Per-element rewrites would touch 62 sites
+ * across LandingPage alone — this single CSS rule covers all of them.
+ * ───────────────────────────────────────────────────────────────────────── */
+.bg-black .text-\[\#b3001e\],
+section.bg-black .text-\[\#b3001e\],
+.bg-black\/95 .text-\[\#b3001e\],
+.bg-\[\#b3001e\]\/15 .text-\[\#b3001e\],
+.bg-\[\#b3001e\]\/10 .text-\[\#b3001e\],
+.bg-\[\#b3001e\]\/20 .text-\[\#b3001e\] {
+  color: #ff2d4f;
+}
