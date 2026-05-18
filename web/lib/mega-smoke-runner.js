@@ -481,6 +481,52 @@ function buildSchemaScenarios(pgToken) {
     },
   })
 
+  // No placeholder HWIDs on active licenses.
+  // Why: every /api/validate call compares the live client HWID to
+  // licenses.hardware_id. If anyone set hardware_id to a human-readable
+  // placeholder (e.g. 'web-michael-test', 'test', 'placeholder'), the
+  // next validate cycle rejects with license_validate_hardware_mismatch
+  // and silently logs the user out → 'iniciar sesion' screen with no
+  // visible cause. Bug hit Studio X SRL on 2026-05-18: hardware_id was
+  // literally 'web-michael-test' from an earlier debug session. Took
+  // an error-log dive to find. This scenario catches the class going
+  // forward — flags any active license whose hardware_id looks like
+  // human input rather than a real device fingerprint.
+  //
+  // Real fingerprints: 32+ hex chars (md5/sha) OR 40+ b64-ish. Anything
+  // with a hyphen-letter pattern (web-, test-, debug-, mike-, etc.)
+  // OR shorter than 16 chars is rejected as placeholder.
+  out.push({
+    id: 'schema.no_placeholder_hwid_on_active_licenses',
+    category: 'schema',
+    name: 'No placeholder hardware_id on active licenses',
+    fn: async () => {
+      const { rows, err } = await pgQuery(pgToken, `
+        SELECT id, business_id, license_key, hardware_id
+        FROM licenses
+        WHERE status = 'active'
+          AND hardware_id IS NOT NULL
+          AND (
+            length(hardware_id) < 16
+            OR hardware_id ~* '(test|placeholder|dummy|fake|sample|web-|desktop-|debug-|mike|michael|tmp|todo)'
+            OR hardware_id !~ '^[a-zA-Z0-9_+/=-]+$'
+          )
+        LIMIT 5
+      `)
+      if (err) return { ok: false, observed: err }
+      if (rows?.length) {
+        const sample = rows.map(r => `${r.license_key || r.id}=${r.hardware_id}`).slice(0, 3).join('; ')
+        return {
+          ok: false,
+          expected: 'all active licenses have real HWID (32+ hex/b64) or NULL',
+          observed: `${rows.length} placeholder HWIDs found: ${sample}`,
+          detail: 'Clear hardware_id (set to NULL) to let next /api/validate rebind cleanly. See HWID rebind logic in web/api/validate.js.',
+        }
+      }
+      return { ok: true }
+    },
+  })
+
   // Synced tables — supabase_id + updated_at presence
   for (const tbl of SYNCED_TABLES) {
     out.push({
