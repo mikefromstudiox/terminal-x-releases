@@ -4201,6 +4201,14 @@ export function createWebAPI(supabase, businessId) {
           const cKey = t.client_supabase_id
           return {
             ...q,
+            // 2026-05-17 — queue.ticket_id is NULL on web-created queue rows
+            // (web inserts only set ticket_supabase_id). Without this override,
+            // Queue.jsx mapRow gets ticketId=null → cobrar passes id=null to
+            // markPaid → `if (ticketId)` short-circuits → ticket NEVER gets
+            // status='cobrado' even though the cobrar modal shows success.
+            // Backfill from the joined tickets.id (UUID) so markPaid can
+            // .eq('id', ticketId) and actually match a row.
+            ticket_id:      t.id || q.ticket_id || null,
             doc_number:     t.doc_number    || null,
             total:          t.total          || 0,
             vehicle_plate:  t.vehicle_plate  || null,
