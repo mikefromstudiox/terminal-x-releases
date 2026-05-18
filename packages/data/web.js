@@ -939,7 +939,7 @@ export function createWebAPI(supabase, businessId) {
           for (const k of ['active','no_commission','commission_washer','commission_seller','commission_cashier','is_wash','aplica_itbis']) {
             if (k in rest) rest[k] = !!rest[k]
           }
-          throwSupaError(await supabase.from('services').update(rest).eq('id', id).eq('business_id', bid))
+          await assertAffected(supabase.from('services').update(rest).eq('id', id).eq('business_id', bid).select('id'), 'web.services.update')
           return { id }
         }
         const row = throwSupaError(await supabase.from('services').insert({ ...data, supabase_id: crypto.randomUUID(), business_id: bid, active: true }).select('id').single())
@@ -1083,7 +1083,7 @@ export function createWebAPI(supabase, businessId) {
         }
         rest.updated_at = new Date().toISOString()
         if (!Object.keys(rest).filter(k => k !== 'updated_at').length) return
-        throwSupaError(await supabase.from('inventory_items').update(rest).eq('id', id).eq('business_id', bid))
+        await assertAffected(supabase.from('inventory_items').update(rest).eq('id', id).eq('business_id', bid).select('id'), 'web.inventory.update')
       }, 'web.inventory.update'),
 
       bulkUpdate: (ids, patch) => tryWrite(async () => {
@@ -5117,9 +5117,12 @@ export function createWebAPI(supabase, businessId) {
         if (Number(seq.current_number) !== num) {
           return { decremented: false, reason: 'not-last', current: Number(seq.current_number) }
         }
-        throwSupaError(await supabase.from('ncf_sequences')
-          .update({ current_number: num - 1 })
-          .eq('business_id', bid).eq('type', seq.type))
+        await assertAffected(
+          supabase.from('ncf_sequences')
+            .update({ current_number: num - 1 })
+            .eq('business_id', bid).eq('type', seq.type).select('id'),
+          'web.ncf.rollback'
+        )
         return { decremented: true, prefix, number: num }
       }, { decremented: false, reason: 'error' }),
 
@@ -5146,7 +5149,7 @@ export function createWebAPI(supabase, businessId) {
         const { data: existing } = await supabase.from('ncf_sequences')
           .select('id').eq('business_id', bid).eq('type', type).maybeSingle()
         if (existing) {
-          throwSupaError(await supabase.from('ncf_sequences').update(rest).eq('business_id', bid).eq('type', type))
+          await assertAffected(supabase.from('ncf_sequences').update(rest).eq('business_id', bid).eq('type', type).select('id'), 'web.ncf.updateSequence')
         } else {
           const insertRow = {
             supabase_id:    (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `web-${Date.now()}`,
