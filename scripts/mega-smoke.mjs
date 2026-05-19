@@ -42,6 +42,7 @@ const BASE = (argv.find(a => a.startsWith('--base=')) || '--base=https://termina
 const JSON_MODE = argv.includes('--json')
 const FILTER = (argv.find(a => a.startsWith('--category=')) || '').slice(11) || null
 const SOURCE = argv.includes('--cron') ? 'cron' : 'local'
+const PARALLEL = Math.max(1, parseInt((argv.find(a => a.startsWith('--parallel=')) || '--parallel=1').slice(11), 10) || 1)
 
 const TTY = process.stdout.isTTY && !JSON_MODE
 const C = {
@@ -71,6 +72,7 @@ const { results, total, passed, failed, skipped, duration_ms, demo_registry } = 
   base: BASE,
   pgToken: process.env.SUPABASE_ACCESS_TOKEN || null,
   vercelToken: process.env.VERCEL_TOKEN || null,
+  concurrency: PARALLEL,
 })
 
 const filtered = FILTER ? results.filter(r => r.category === FILTER) : results
