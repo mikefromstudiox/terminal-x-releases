@@ -3179,6 +3179,10 @@ export function createWebAPI(supabase, businessId) {
               // ticket. See supabase/migrations/20260420100000_*.sql.
               payment_parts:   (Array.isArray(data.payment_parts) && data.payment_parts.length) ? data.payment_parts : null,
               split_bill:      (data.split === true || (Array.isArray(data.payment_parts) && data.payment_parts.length > 1)) || false,
+              // 2026-05-19 — Persist age verification fact at sale time. Was modal-only
+              // state pre-fix → reprints + DGII alcohol-sale audits lost the record.
+              // Schema column added in migrations/2026_05_19_tickets_age_verified.sql.
+              age_verified:    !!data.ageVerified,
               is_test:         !_liveWeb,
             }, { returning: 'minimal' }))
 

@@ -3088,6 +3088,10 @@ function RetailPOS() {
         // filter dine-in vs. takeout vs. direct-retail independently.
         mode:             isHybrid ? 'directa' : undefined,
         order_source:     pending.pyMode ? 'pedidos_ya' : 'pos',
+        // 2026-05-19 — persist age verification fact onto tickets.age_verified
+        // so reprints + DGII alcohol-sale audits keep the record. Sourced
+        // from POS-level ageVerified state captured by AgeVerifyModal.
+        ageVerified:      !!pending.ageVerified,
         converted_from_ticket_supabase_id: pending.convertedFromTicketSupabaseId || hybridConvertMeta?.convertedFromTicketSupabaseId || undefined,
         converted_from_mesa_supabase_id:   pending.convertedFromMesaSupabaseId   || hybridConvertMeta?.convertedFromMesaSupabaseId   || undefined,
         items:            pending.items.map(i => ({
