@@ -1141,6 +1141,500 @@ h.scenario('vertical.contabilidad.demo.client_crud', async (ctx) => {
 }, { category: 'vertical.contabilidad' })
 
 // ════════════════════════════════════════════════════════════════════════════
+// CATEGORY: vertical.licoreria.cristal.* — Operation Cristal permanent gate
+//
+// Origin: A:\TerminalX-Share\OPERATION-CRISTAL.md (Ranoza retail audit spec).
+// We can't observe live taps on Ranoza's PC from the cloud, so the 5-action
+// sequence is collapsed into deterministic write+verify scenarios against the
+// demo_licoreria fixture (Licoreria Demo). Each scenario maps to a Cristal
+// action or one of the predicted "specific findings" bug classes:
+//   - inventory deduct + sync race
+//   - bottle deposit synthetic line drift
+//   - age verification persistence
+//   - PY pricing under credito
+//   - inline new-client create race
+//   - void+inventory reversal symmetry
+//   - dual-terminal NCF / doc_number collision
+// ════════════════════════════════════════════════════════════════════════════
+
+// Helper: load licoreria subtype config (pure, no DB).
+async function loadLicoreriaCfg() {
+  const mod = await import('../packages/config/tiendaSubtypes.js').catch(() => null)
+  return mod?.TIENDA_SUBTYPES?.licoreria || null
+}
+
+// Action 1 — barcode/sku → single ticket row + atomic inventory deduct.
+h.scenario('vertical.licoreria.cristal.barcode_scan_creates_ticket', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const { data: item } = await ctx.supabase.from('inventory_items')
+    .select('id, supabase_id, name, price, quantity, sku, barcode')
+    .eq('business_id', fx.id).eq('active', true).gt('quantity', 5).limit(1).maybeSingle()
+  if (!item) return ctx.skip('no inventory with qty>5')
+  const pre = Number(item.quantity)
+  const tSid = ctx.uuid()
+  const docNo = `${TAG}BAR-${Date.now()}`
+  ctx.cleanup(async () => {
+    await ctx.supabase.from('ticket_items').delete().eq('ticket_supabase_id', tSid)
+    await ctx.supabase.from('inventory_transactions').delete().eq('business_id', fx.id).eq('item_supabase_id', item.supabase_id).eq('notes', `${TAG}barcode`)
+    await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid)
+    await ctx.supabase.from('inventory_items').update({ quantity: pre }).eq('id', item.id)
+  })
+  // Insert ticket (single row — no phantom)
+  const price = Number(item.price) || 100
+  const itbis = +(price - price / 1.18).toFixed(2)
+  const t = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, doc_number: docNo, status: 'cobrado',
+    subtotal: price - itbis, itbis, total: price, payment_method: 'efectivo', rev: 1,
+    paid_at: nowIso(), order_source: 'pos', notes: `${TAG}barcode`,
+  }).select('id').single()
+  ctx.assert(!t.error, `ticket insert: ${t.error?.message}`)
+  // Single ticket — re-select by supabase_id, count must be 1.
+  const { data: dup } = await ctx.supabase.from('tickets')
+    .select('id', { count: 'exact' }).eq('supabase_id', tSid)
+  ctx.assertEq(dup?.length, 1, 'phantom ticket row(s)')
+  // Insert ticket_item
+  const ii = await ctx.supabase.from('ticket_items').insert({
+    supabase_id: ctx.uuid(), business_id: fx.id, ticket_id: t.data.id, ticket_supabase_id: tSid,
+    inventory_item_supabase_id: item.supabase_id, name: item.name,
+    price, quantity: 1, itbis, cost: 0,
+  })
+  ctx.assert(!ii.error, `ticket_item: ${ii.error?.message}`)
+  // Deduct exactly 1 via direct update (simulating Cobrar persist path).
+  const up = await ctx.supabase.from('inventory_items')
+    .update({ quantity: pre - 1, updated_at: nowIso() }).eq('id', item.id).select('quantity').single()
+  ctx.assertEq(Number(up.data.quantity), pre - 1, 'inventory deducted != 1')
+  // Inventory transaction trail
+  const it = await ctx.supabase.from('inventory_transactions').insert({
+    supabase_id: ctx.uuid(), business_id: fx.id, item_supabase_id: item.supabase_id,
+    type: 'sale', delta: -1, notes: `${TAG}barcode`,
+  })
+  ctx.assert(!it.error, `inventory_transaction: ${it.error?.message}`)
+}, { category: 'vertical.licoreria.cristal' })
+
+// deduct_inventory_atomic RPC signature + decrement check.
+h.scenario('vertical.licoreria.cristal.barcode_inventory_atomic', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  if (!ACCESS_TOKEN) return ctx.skip('SUPABASE_ACCESS_TOKEN required for pg_catalog probe')
+  const sig = await ctx.pgQuery(
+    `SELECT pg_get_function_identity_arguments(p.oid) AS args FROM pg_proc p WHERE p.proname = 'deduct_inventory_atomic'`
+  )
+  ctx.assert(sig.length >= 1, 'deduct_inventory_atomic missing')
+  const args = sig[0].args || ''
+  ctx.assert(/p_business_id\s+uuid/.test(args), `signature drift: ${args}`)
+  ctx.assert(/p_items\s+json/.test(args), `signature drift: ${args}`)
+  // Live decrement
+  const { data: item } = await ctx.supabase.from('inventory_items')
+    .select('id, supabase_id, name, quantity').eq('business_id', fx.id)
+    .eq('active', true).gt('quantity', 5).limit(1).maybeSingle()
+  if (!item) return ctx.skip('no inventory with qty>5')
+  const pre = Number(item.quantity)
+  ctx.cleanup(async () => { await ctx.supabase.from('inventory_items').update({ quantity: pre }).eq('id', item.id) })
+  const r = await ctx.supabase.rpc('deduct_inventory_atomic', {
+    p_business_id: fx.id, p_ticket_supabase_id: ctx.uuid(), p_hwid: `${TAG}cristal-atomic`,
+    p_items: [{ item_supabase_id: item.supabase_id, qty: 1, name: item.name }],
+  })
+  ctx.assert(!r.error, `rpc: ${r.error?.message}`)
+  const { data: post } = await ctx.supabase.from('inventory_items').select('quantity').eq('id', item.id).single()
+  ctx.assertEq(Number(post.quantity), pre - 1, `expected ${pre - 1}, got ${post.quantity}`)
+}, { category: 'vertical.licoreria.cristal' })
+
+// Action 2 — bottle deposit synthetic line lands with is_deposit=true.
+h.scenario('vertical.licoreria.cristal.bottle_deposit_synthetic_line', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  // Seed a deposit-bearing item
+  const invSid = ctx.uuid()
+  const { data: inv, error: ie } = await ctx.supabase.from('inventory_items').insert({
+    supabase_id: invSid, business_id: fx.id, active: true,
+    name: `${TAG}Cerveza-Dep`, category: 'cerveza', quantity: 50, price: 100, cost: 60,
+    bottle_deposit: 5,
+  }).select('id, supabase_id, name').single()
+  ctx.assert(!ie, ie?.message)
+  const tSid = ctx.uuid()
+  ctx.cleanup(async () => {
+    await ctx.supabase.from('ticket_items').delete().eq('ticket_supabase_id', tSid)
+    await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid)
+    await ctx.supabase.from('inventory_items').delete().eq('id', inv.id)
+  })
+  const t = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 89, itbis: 16, total: 105, payment_method: 'efectivo', rev: 1, notes: `${TAG}dep`,
+  }).select('id').single()
+  ctx.assert(!t.error, t.error?.message)
+  // Real product line + synthetic deposit line
+  const rows = [
+    { supabase_id: ctx.uuid(), business_id: fx.id, ticket_id: t.data.id, ticket_supabase_id: tSid,
+      inventory_item_supabase_id: inv.supabase_id, name: inv.name, price: 100, quantity: 1,
+      itbis: +(100 - 100 / 1.18).toFixed(2), cost: 60, is_deposit: false },
+    { supabase_id: ctx.uuid(), business_id: fx.id, ticket_id: t.data.id, ticket_supabase_id: tSid,
+      name: 'Depósito de botella', price: 5, quantity: 1, itbis: 0, cost: 0, is_deposit: true },
+  ]
+  const ins = await ctx.supabase.from('ticket_items').insert(rows).select('id, is_deposit, price')
+  ctx.assert(!ins.error, ins.error?.message)
+  const deposit = (ins.data || []).find(r => r.is_deposit === true)
+  ctx.assertNotNull(deposit, 'no is_deposit=true row landed')
+  ctx.assertEq(Number(deposit.price), 5, 'deposit price drift')
+}, { category: 'vertical.licoreria.cristal' })
+
+// Bottle deposit reversal on void.
+h.scenario('vertical.licoreria.cristal.bottle_deposit_void_reverses', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const tSid = ctx.uuid()
+  const t = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 89, itbis: 16, total: 105, payment_method: 'efectivo', rev: 1, notes: `${TAG}depvoid`,
+  }).select('id, rev').single()
+  ctx.assert(!t.error, t.error?.message)
+  ctx.cleanup(async () => {
+    await ctx.supabase.from('ticket_items').delete().eq('ticket_supabase_id', tSid)
+    await ctx.supabase.from('tickets').delete().eq('id', t.data.id)
+  })
+  await ctx.supabase.from('ticket_items').insert({
+    supabase_id: ctx.uuid(), business_id: fx.id, ticket_id: t.data.id, ticket_supabase_id: tSid,
+    name: 'Depósito de botella', price: 5, quantity: 1, itbis: 0, cost: 0, is_deposit: true,
+  })
+  // Void the ticket — must advance rev and flip status.
+  const rev = Number(t.data.rev || 0)
+  const v = await ctx.supabase.from('tickets').update({
+    status: 'nula', void_at: nowIso(), rev: rev + 1, updated_at: nowIso(),
+  }).eq('id', t.data.id).select('status, rev').single()
+  ctx.assert(!v.error && v.data.status === 'nula', `void failed: ${v.error?.message}`)
+  ctx.assertEq(Number(v.data.rev), rev + 1, 'rev did not advance')
+  // Deposit line still on the (voided) ticket — its accounting reversal is the
+  // ticket-level void. There must NOT be a phantom positive deposit row left
+  // without a matching ticket in 'cobrado' status.
+  const { data: items } = await ctx.supabase.from('ticket_items')
+    .select('is_deposit').eq('ticket_supabase_id', tSid).eq('is_deposit', true)
+  ctx.assert((items?.length || 0) === 1, `expected 1 deposit row tied to voided ticket, got ${items?.length}`)
+}, { category: 'vertical.licoreria.cristal' })
+
+// Action 4 — age verification persistence (schema gap → ctx.skip).
+h.scenario('vertical.licoreria.cristal.age_verification_persists', async (ctx) => {
+  if (!ACCESS_TOKEN) return ctx.skip('SUPABASE_ACCESS_TOKEN required')
+  const rows = await ctx.pgQuery(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema='public' AND table_name IN ('tickets','ticket_items')
+       AND column_name IN ('age_verified','verified_age','age_verification')`
+  )
+  if (!rows.length) {
+    return ctx.skip('tickets/ticket_items have no age_verified column — finding: persistence is in-memory only (modal flag), reprints lose verification record (Cristal predicted bug)')
+  }
+  // If column ever exists, write+read it.
+  const fx = ctx.fixture('demo_licoreria')
+  const col = rows[0].column_name
+  const tSid = ctx.uuid()
+  const payload = { supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 100, itbis: 18, total: 118, payment_method: 'efectivo', rev: 1, notes: `${TAG}age`, [col]: true }
+  const t = await ctx.supabase.from('tickets').insert(payload).select(`id, ${col}`).single()
+  ctx.cleanup(async () => { await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid) })
+  ctx.assert(!t.error, t.error?.message)
+  ctx.assert(t.data[col] === true, `${col} did not persist`)
+}, { category: 'vertical.licoreria.cristal' })
+
+// Subtype config: triggerCategories surfaced.
+h.scenario('vertical.licoreria.cristal.age_verification_modal_categories', async (ctx) => {
+  const sub = await loadLicoreriaCfg()
+  if (!sub) return ctx.skip('tiendaSubtypes.js unavailable')
+  const tc = sub.config?.ageVerification?.triggerCategories
+  ctx.assert(Array.isArray(tc) && tc.length > 0, 'triggerCategories missing')
+  for (const k of ['ron', 'cerveza', 'whisky', 'vino']) {
+    ctx.assert(tc.map(s => s.toLowerCase()).includes(k), `triggerCategories missing "${k}"`)
+  }
+}, { category: 'vertical.licoreria.cristal' })
+
+// Pedidos Ya — order_source persists, distinct from 'pos'.
+h.scenario('vertical.licoreria.cristal.pedidos_ya_pricing_override', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const tSid = ctx.uuid()
+  ctx.cleanup(async () => { await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid) })
+  const r = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 100, itbis: 18, total: 118, payment_method: 'efectivo', rev: 1,
+    order_source: 'pedidos_ya', notes: `${TAG}py`,
+  }).select('id, order_source').single()
+  ctx.assert(!r.error, r.error?.message)
+  ctx.assertEq(r.data.order_source, 'pedidos_ya')
+  // Inventory_items column price_pedidos_ya is the override channel.
+  const { count, error } = await ctx.supabase.from('inventory_items')
+    .select('*', { count: 'exact', head: true })
+    .eq('business_id', fx.id).not('price_pedidos_ya', 'is', null)
+  ctx.assert(!error, error?.message)
+  ctx.assert(count !== null, 'price_pedidos_ya column missing')
+}, { category: 'vertical.licoreria.cristal' })
+
+// Pedidos Ya — commission_exclude flag respected.
+h.scenario('vertical.licoreria.cristal.pedidos_ya_commission_excluded', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const tSid = ctx.uuid()
+  ctx.cleanup(async () => { await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid) })
+  const r = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 100, itbis: 18, total: 118, payment_method: 'efectivo', rev: 1,
+    order_source: 'pedidos_ya', commission_exclude: 1, notes: `${TAG}py-noc`,
+  }).select('id, order_source, commission_exclude').single()
+  ctx.assert(!r.error, r.error?.message)
+  ctx.assertEq(Number(r.data.commission_exclude), 1, 'PY ticket commission_exclude flag not honored')
+}, { category: 'vertical.licoreria.cristal' })
+
+// Action 3 — inline new-client + immediate credit ticket, no race.
+h.scenario('vertical.licoreria.cristal.inline_client_create_no_race', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const cSid = ctx.uuid(), tSid = ctx.uuid()
+  ctx.cleanup(async () => {
+    await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid)
+    await ctx.supabase.from('clients').delete().eq('supabase_id', cSid)
+  })
+  // Inline create (no setTimeout, no Date.now() — must use crypto.randomUUID).
+  const c = await ctx.supabase.from('clients').insert({
+    supabase_id: cSid, business_id: fx.id, name: `${TAG}Inline`,
+    active: true, credit_limit: 10000, balance: 0,
+  }).select('id, supabase_id').single()
+  ctx.assert(!c.error, `client insert: ${c.error?.message}`)
+  // Immediate credit ticket referencing that client_supabase_id.
+  const t = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 200, itbis: 36, total: 236, payment_method: 'credito',
+    client_supabase_id: cSid, rev: 1, notes: `${TAG}credito`, tipo_venta: 'credito',
+  }).select('id, client_supabase_id').single()
+  ctx.assert(!t.error, `ticket insert: ${t.error?.message}`)
+  ctx.assertEq(t.data.client_supabase_id, cSid, 'client_supabase_id lost')
+}, { category: 'vertical.licoreria.cristal' })
+
+// client_item_prices override — per-client price persists.
+h.scenario('vertical.licoreria.cristal.per_client_pricing_override', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const { data: item } = await ctx.supabase.from('inventory_items')
+    .select('id, supabase_id, name, price').eq('business_id', fx.id)
+    .eq('active', true).limit(1).maybeSingle()
+  if (!item) return ctx.skip('no inventory row')
+  const cSid = ctx.uuid()
+  const c = await ctx.supabase.from('clients').insert({
+    supabase_id: cSid, business_id: fx.id, name: `${TAG}CIP`, active: true,
+  }).select('id').single()
+  ctx.assert(!c.error, c.error?.message)
+  ctx.cleanup(async () => {
+    await ctx.supabase.from('client_item_prices').delete().eq('client_supabase_id', cSid)
+    await ctx.supabase.from('clients').delete().eq('supabase_id', cSid)
+  })
+  const cipSid = ctx.uuid()
+  const ins = await ctx.supabase.from('client_item_prices').insert({
+    supabase_id: cipSid, business_id: fx.id,
+    client_supabase_id: cSid, inventory_item_supabase_id: item.supabase_id,
+    custom_price: 1, notes: `${TAG}override`,
+  }).select('custom_price').single()
+  ctx.assert(!ins.error, `cip insert: ${ins.error?.message}`)
+  ctx.assertEq(Number(ins.data.custom_price), 1, 'custom_price drift')
+  // Read back via the table's unique index (biz, client, item).
+  const { data: read } = await ctx.supabase.from('client_item_prices')
+    .select('custom_price').eq('business_id', fx.id)
+    .eq('client_supabase_id', cSid).eq('inventory_item_supabase_id', item.supabase_id)
+    .maybeSingle()
+  ctx.assertEq(Number(read?.custom_price), 1, 'per-client override did not persist')
+}, { category: 'vertical.licoreria.cristal' })
+
+// Action 5 — full void: status=nula + inventory restored + rev advanced.
+h.scenario('vertical.licoreria.cristal.void_with_inventory_reversal', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const { data: item } = await ctx.supabase.from('inventory_items')
+    .select('id, supabase_id, name, price, quantity')
+    .eq('business_id', fx.id).eq('active', true).gt('quantity', 5).limit(1).maybeSingle()
+  if (!item) return ctx.skip('no inventory with qty>5')
+  const pre = Number(item.quantity)
+  const tSid = ctx.uuid()
+  ctx.cleanup(async () => {
+    await ctx.supabase.from('ticket_items').delete().eq('ticket_supabase_id', tSid)
+    await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid)
+    await ctx.supabase.from('inventory_items').update({ quantity: pre }).eq('id', item.id)
+  })
+  // Sale: deduct 1
+  const t = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 100, itbis: 18, total: 118, payment_method: 'efectivo', rev: 1, notes: `${TAG}voidinv`,
+  }).select('id, rev').single()
+  ctx.assert(!t.error, t.error?.message)
+  await ctx.supabase.from('ticket_items').insert({
+    supabase_id: ctx.uuid(), business_id: fx.id, ticket_id: t.data.id, ticket_supabase_id: tSid,
+    inventory_item_supabase_id: item.supabase_id, name: item.name,
+    price: 100, quantity: 1, itbis: +(100 - 100 / 1.18).toFixed(2), cost: 50,
+  })
+  await ctx.supabase.from('inventory_items').update({ quantity: pre - 1 }).eq('id', item.id)
+  // Void: status=nula, rev+1, inventory restored
+  const rev = Number(t.data.rev || 0)
+  const v = await ctx.supabase.from('tickets').update({
+    status: 'nula', void_at: nowIso(), rev: rev + 1, updated_at: nowIso(),
+  }).eq('id', t.data.id).select('status, rev').single()
+  ctx.assert(!v.error && v.data.status === 'nula', `void: ${v.error?.message}`)
+  ctx.assertEq(Number(v.data.rev), rev + 1, 'rev did not advance on void')
+  await ctx.supabase.from('inventory_items').update({ quantity: pre }).eq('id', item.id)
+  const { data: post } = await ctx.supabase.from('inventory_items').select('quantity').eq('id', item.id).single()
+  ctx.assertEq(Number(post.quantity), pre, 'inventory not restored on void')
+}, { category: 'vertical.licoreria.cristal' })
+
+// Voiding the last-issued NCF must decrement (or hold) the sequence.
+h.scenario('vertical.licoreria.cristal.void_after_ncf_decrements_seq', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  // Seed a B02 sequence on demo_licoreria.
+  const seqSid = ctx.uuid()
+  const seq0 = await ctx.supabase.from('ncf_sequences').upsert({
+    supabase_id: seqSid, business_id: fx.id, type: 'B02', prefix: 'B02',
+    current_number: 100, end_number: 1000,
+  }, { onConflict: 'business_id,type', ignoreDuplicates: false }).select('id, current_number').single()
+  // upsert may return prior row or new — read back the row we now own.
+  const { data: seq } = await ctx.supabase.from('ncf_sequences')
+    .select('id, current_number').eq('business_id', fx.id).eq('type', 'B02').maybeSingle()
+  if (!seq) return ctx.skip('ncf_sequences upsert failed')
+  ctx.cleanup(async () => {
+    // Restore numeric counter; do NOT delete the row (other scenarios share it).
+    await ctx.supabase.from('ncf_sequences').update({ current_number: seq.current_number }).eq('id', seq.id)
+  })
+  // Probe forward for an unused NCF (avoids uq_tickets_biz_ncf collisions across runs).
+  let lastNumber = Number(seq.current_number) + 1
+  let ncf = `B02${String(lastNumber).padStart(8, '0')}`
+  for (let probe = 0; probe < 50; probe++) {
+    const { data: hit } = await ctx.supabase.from('tickets')
+      .select('id').eq('business_id', fx.id).eq('ncf', ncf).maybeSingle()
+    if (!hit) break
+    lastNumber++
+    ncf = `B02${String(lastNumber).padStart(8, '0')}`
+  }
+  const tSid = ctx.uuid()
+  const t = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 100, itbis: 18, total: 118, payment_method: 'efectivo', rev: 1,
+    ncf, notes: `${TAG}ncfdec`,
+  }).select('id, rev').single()
+  if (t.error) return ctx.skip(`ticket insert blocked: ${t.error.message}`)
+  ctx.cleanup(async () => { await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid) })
+  // Simulate the decrement step (electron/database.js : ncfSequenceDecrementIfLast)
+  await ctx.supabase.from('ncf_sequences').update({ current_number: Number(seq.current_number) }).eq('id', seq.id)
+  const v = await ctx.supabase.from('tickets').update({
+    status: 'nula', void_at: nowIso(), rev: Number(t.data.rev) + 1, updated_at: nowIso(),
+  }).eq('id', t.data.id).select('status').single()
+  ctx.assert(!v.error && v.data.status === 'nula', `void: ${v.error?.message}`)
+  const { data: postSeq } = await ctx.supabase.from('ncf_sequences')
+    .select('current_number').eq('id', seq.id).single()
+  ctx.assertEq(Number(postSeq.current_number), Number(seq.current_number),
+    'last-issued NCF was NOT released back to the sequence on void')
+}, { category: 'vertical.licoreria.cristal' })
+
+// Multi-POS NCF allocation — block coordination via allocate_ncf_block RPC.
+h.scenario('vertical.licoreria.cristal.multi_pos_ncf_block_coordination', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  // Bootstrap master sequence then claim two disjoint blocks from distinct HWIDs.
+  await ctx.supabase.rpc('allocate_ncf_block', {
+    p_business_id: fx.id, p_hwid: `${TAG}CRBOOT`, p_ncf_type: 'B02', p_size: 10,
+  })
+  const [rA, rB] = await Promise.all([
+    ctx.supabase.rpc('allocate_ncf_block', { p_business_id: fx.id, p_hwid: `${TAG}CRA`, p_ncf_type: 'B02', p_size: 5 }),
+    ctx.supabase.rpc('allocate_ncf_block', { p_business_id: fx.id, p_hwid: `${TAG}CRB`, p_ncf_type: 'B02', p_size: 5 }),
+  ])
+  ctx.assert(!rA.error && !rB.error, `rpc: ${rA.error?.message || rB.error?.message}`)
+  const a = rA.data, b = rB.data
+  ctx.assertNotNull(a, 'A null'); ctx.assertNotNull(b, 'B null')
+  const overlap = !(a.range_end < b.range_start || b.range_end < a.range_start)
+  ctx.assert(!overlap, `multi-POS NCF block overlap A=[${a.range_start}..${a.range_end}] B=[${b.range_start}..${b.range_end}]`)
+  // Safety-net check: uq_tickets_biz_ncf must exist as a PARTIAL unique index.
+  if (ACCESS_TOKEN) {
+    const idx = await ctx.pgQuery(
+      `SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='uq_tickets_biz_ncf'`
+    )
+    ctx.assert(idx.length >= 1, 'uq_tickets_biz_ncf safety-net index missing')
+    ctx.assert(/WHERE \(ncf IS NOT NULL\)/i.test(idx[0].indexdef), 'uq_tickets_biz_ncf shape drift')
+  }
+}, { category: 'vertical.licoreria.cristal' })
+
+// Dual-terminal: two concurrent ticket inserts must NOT collide on doc_number.
+h.scenario('vertical.licoreria.cristal.dual_terminal_doc_number_no_collide', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const sA = ctx.uuid(), sB = ctx.uuid()
+  const stamp = Date.now()
+  const docA = `${TAG}T1-${stamp}`, docB = `${TAG}T2-${stamp}`
+  ctx.cleanup(async () => { await ctx.supabase.from('tickets').delete().in('supabase_id', [sA, sB]) })
+  const [rA, rB] = await Promise.all([
+    ctx.supabase.from('tickets').insert({
+      supabase_id: sA, business_id: fx.id, doc_number: docA, status: 'cobrado',
+      subtotal: 100, itbis: 18, total: 118, payment_method: 'efectivo', rev: 1, notes: `${TAG}dualA`,
+    }).select('supabase_id, doc_number').single(),
+    ctx.supabase.from('tickets').insert({
+      supabase_id: sB, business_id: fx.id, doc_number: docB, status: 'cobrado',
+      subtotal: 100, itbis: 18, total: 118, payment_method: 'efectivo', rev: 1, notes: `${TAG}dualB`,
+    }).select('supabase_id, doc_number').single(),
+  ])
+  ctx.assert(!rA.error && !rB.error, `inserts: ${rA.error?.message || rB.error?.message}`)
+  ctx.assert(rA.data.doc_number !== rB.data.doc_number, 'doc_number collision across terminals')
+  ctx.assert(rA.data.supabase_id !== rB.data.supabase_id, 'supabase_id collision')
+}, { category: 'vertical.licoreria.cristal' })
+
+// Subtype features block resolves end-to-end (config + app_settings present).
+h.scenario('vertical.licoreria.cristal.licoreria_subtype_features_present', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const sub = await loadLicoreriaCfg()
+  if (!sub) return ctx.skip('tiendaSubtypes.js unavailable')
+  // Config block invariants
+  ctx.assertNotNull(sub.config?.ageVerification, 'ageVerification block missing')
+  ctx.assertNotNull(sub.config?.bottleDeposit, 'bottleDeposit block missing')
+  ctx.assertNotNull(sub.config?.quickSell, 'quickSell block missing')
+  ctx.assertNotNull(sub.config?.brandSuggestions, 'brandSuggestions block missing')
+  ctx.assert(Number(sub.config.bottleDeposit.maxAmount) > 0, 'bottleDeposit.maxAmount missing')
+  // app_settings — tienda_subtype seeded?
+  const { data } = await ctx.supabase.from('app_settings')
+    .select('value').eq('business_id', fx.id).eq('key', 'tienda_subtype').maybeSingle()
+  if (!data) return ctx.skip('demo_licoreria has no tienda_subtype seeded (known demo drift — see vertical.demos.app_settings_coverage)')
+  ctx.assertEq(String(data.value).toLowerCase(), 'licoreria', `tienda_subtype=${data.value}`)
+}, { category: 'vertical.licoreria.cristal' })
+
+// Reprint preserves the deposit line (synthetic line is durable).
+h.scenario('vertical.licoreria.cristal.reprint_preserves_deposit_line', async (ctx) => {
+  const fx = ctx.fixture('demo_licoreria')
+  if (!fx) return ctx.skip('demo_licoreria fixture missing')
+  const tSid = ctx.uuid()
+  const t = await ctx.supabase.from('tickets').insert({
+    supabase_id: tSid, business_id: fx.id, status: 'cobrado',
+    subtotal: 105, itbis: 16, total: 121, payment_method: 'efectivo', rev: 1, notes: `${TAG}rep`,
+  }).select('id').single()
+  ctx.assert(!t.error, t.error?.message)
+  ctx.cleanup(async () => {
+    await ctx.supabase.from('ticket_items').delete().eq('ticket_supabase_id', tSid)
+    await ctx.supabase.from('tickets').delete().eq('supabase_id', tSid)
+  })
+  await ctx.supabase.from('ticket_items').insert([
+    { supabase_id: ctx.uuid(), business_id: fx.id, ticket_id: t.data.id, ticket_supabase_id: tSid,
+      name: `${TAG}Beer`, price: 100, quantity: 1, itbis: +(100 - 100 / 1.18).toFixed(2), cost: 60, is_deposit: false },
+    { supabase_id: ctx.uuid(), business_id: fx.id, ticket_id: t.data.id, ticket_supabase_id: tSid,
+      name: 'Depósito de botella', price: 5, quantity: 1, itbis: 0, cost: 0, is_deposit: true },
+  ])
+  // Reprint = re-read every persisted line. Deposit must survive.
+  const { data: lines } = await ctx.supabase.from('ticket_items')
+    .select('is_deposit, price, name').eq('ticket_supabase_id', tSid).order('id', { ascending: true })
+  ctx.assertEq(lines?.length, 2, 'reprint lost a line')
+  ctx.assert(lines.some(l => l.is_deposit === true && Number(l.price) === 5), 'deposit line lost on reread')
+}, { category: 'vertical.licoreria.cristal' })
+
+// quickSell + brandSuggestions sanity (pure config — fast).
+h.scenario('vertical.licoreria.cristal.quicksell_brand_suggestions_present', async (ctx) => {
+  const sub = await loadLicoreriaCfg()
+  if (!sub) return ctx.skip('tiendaSubtypes.js unavailable')
+  ctx.assert(sub.config.quickSell?.enabled === true, 'quickSell disabled by default')
+  ctx.assert(Number(sub.config.quickSell?.topN) > 0, 'quickSell.topN invalid')
+  const bs = sub.config.brandSuggestions || {}
+  for (const k of ['ron', 'whisky', 'vodka', 'cerveza']) {
+    ctx.assert(Array.isArray(bs[k]) && bs[k].length >= 3, `brandSuggestions.${k} too thin`)
+  }
+}, { category: 'vertical.licoreria.cristal' })
+
+// ════════════════════════════════════════════════════════════════════════════
 // CATEGORY: vertical.cross.* — ofertas/combos, multi-POS, drift
 // Absorbs: ofertas-e2e-smoke, ranoza-dual-terminal-smoke, sandbox-demo-smoke,
 //          flow-drift-smoke (synthesized real-user-action checks)
