@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-19T07:02:51.160Z
+- **Snapshot taken:** 2026-05-19T07:09:29.545Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1509,7 +1509,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **1190**
+- Rough row count (n_live_tup): **1194**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2292,7 +2292,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **23772**
+- Rough row count (n_live_tup): **23776**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3148,7 +3148,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `dgii_seed_nonces`
 
-- Rough row count (n_live_tup): **26**
+- Rough row count (n_live_tup): **38**
 - RLS enabled: **YES**
 
 **Columns**
@@ -15142,7 +15142,7 @@ SELECT n.nspname  AS schema,
   ORDER BY p.proname;
 ```
 
-Total functions: **262**
+Total functions: **263**
 
 ### `_touch_updated_at()`
 
@@ -17984,6 +17984,30 @@ BEGIN
 END;
 ```
 
+### `sweep_expired_licenses()`
+
+- returns: `integer`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE
+  flipped int;
+BEGIN
+  WITH upd AS (
+    UPDATE public.licenses
+    SET status = 'expired',
+        updated_at = now()
+    WHERE status = 'active'
+      AND expires_at IS NOT NULL
+      AND expires_at < now()
+    RETURNING 1
+  )
+  SELECT count(*) INTO flipped FROM upd;
+  RETURN flipped;
+END
+```
+
 ### `sync_merge_upsert(p_table text, p_rows jsonb, p_business_id uuid, p_append_only boolean, p_natural_key text)` **HOT (called from web.js — DO NOT BREAK)**
 
 - returns: `jsonb`
@@ -19389,7 +19413,7 @@ SELECT schemaname, tablename
   ORDER BY schemaname, tablename;
 ```
 
-Total members: **25**
+Total members: **27**
 
 | schema | table |
 |--------|-------|
@@ -19408,6 +19432,8 @@ Total members: **25**
 | public | `mesas` |
 | public | `ncf_sequences` |
 | public | `notas_credito` |
+| public | `oferta_items` |
+| public | `ofertas` |
 | public | `payroll_runs` |
 | public | `queue` |
 | public | `salary_changes` |
@@ -19476,9 +19502,9 @@ These have all bitten Terminal X in production. Future readers — check this li
 - Constraints: **790** (PK: 191, UNIQUE: 292, FK: 164, CHECK: 141)
 - Indexes: **991** (partial: 146)
 - Policies: **421** (`app_metadata`: 265, `user_metadata`: 0)
-- Functions: **262**
+- Functions: **263**
 - Triggers: **294**
-- Realtime members: **25**
+- Realtime members: **27**
 
 ## Changelog
 
