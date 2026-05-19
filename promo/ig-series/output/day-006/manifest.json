@@ -4,7 +4,7 @@
   "topic": "Tu PSFE puede caerse — tu negocio no debería",
   "pillar": "BUYER / PAIN",
   "publishDate": "2026-05-26",
-  "caption": "Si tu sistema actual depende de un PSFE intermediario, cada caída del PSFE = caída de tu caja.\n\nLos PSFE no son Terminal X. Son intermediarios entre tu sistema y DGII. Cuando se caen, tú no puedes facturar. Tu cliente espera. Tu cliente se va.\n\nTerminal X es Emisor Directo. Hablamos a DGII sin intermediarios. Cuando hay outage del PSFE de otros, tu negocio sigue.\n\n#RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #Finanzas",
+  "caption": "⚠️ Si tu sistema depende de un PSFE intermediario, cada caída de ellos = caída de TU caja.\n\nTerminal X NO es un PSFE. Somos Emisor Directo a DGII. Sin intermediarios.\n\n🔥 Cuando los demás se caen, tu negocio sigue facturando.\n\n¿Tu cliente espera? No. Se va. 👀\n\n📲 WhatsApp: +1 809-828-2971\n\n#POS #RepublicaDominicana #SantoDomingo #Emprendimiento #Empresarios #NegocioPropio #Emprendedor #PyMe #Contabilidad #Impuestos #DGII",
   "slides": [
     { "type": "hook", "bg": "black", "hero": "0", "heroColor": "crimson", "subhero": "PSFE EN EL CAMINO", "promise": "EMISIÓN DIRECTA A DGII" },
     { "type": "context", "bg": "white", "header": "QUÉ ES UN PSFE?", "body": "Proveedor que firma e-CF EN TU NOMBRE y los envía a DGII. Si se cae, tú no facturas." },
