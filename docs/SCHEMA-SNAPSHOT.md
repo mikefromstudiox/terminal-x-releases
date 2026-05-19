@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-17T22:37:44.897Z
+- **Snapshot taken:** 2026-05-19T06:37:45.196Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -45,11 +45,11 @@ SELECT c.relname AS table_name,
   ORDER BY c.relname;
 ```
 
-Total tables: **153** (RLS enabled: **153**)
+Total tables: **159** (RLS enabled: **159**)
 
 ### `accounting_bank_accounts`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -305,7 +305,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `accounting_clients`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **13**
 - RLS enabled: **YES**
 
 **Columns**
@@ -428,7 +428,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `accounting_comprobantes`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **2**
 - RLS enabled: **YES**
 
 **Columns**
@@ -477,7 +477,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
-- `accounting_comprobantes_dedupe_uniq` — UNIQUE NULLS NOT DISTINCT (business_id, accounting_client_id, kind, ncf, fecha_comprobante)
+- `accounting_comprobantes_dedupe_uniq` — UNIQUE (business_id, accounting_client_id, kind, ncf, fecha_comprobante)
 - `accounting_comprobantes_supabase_id_key` — UNIQUE (supabase_id)
 
 **Check Constraints**
@@ -485,6 +485,8 @@ Total tables: **153** (RLS enabled: **153**)
 - `accounting_comprobantes_kind_check` — CHECK ((kind = ANY (ARRAY['compra'::text, 'venta'::text, 'anulado'::text])))
 - `accounting_comprobantes_source_check` — CHECK ((source = ANY (ARRAY['manual'::text, 'csv'::text, 'xml'::text, 'api'::text])))
 - `accounting_comprobantes_tipo_id_check` — CHECK ((tipo_id = ANY (ARRAY['rnc'::text, 'cedula'::text, 'passport'::text])))
+- `chk_itbis_rate_valid` — CHECK (((itbis_rate IS NULL) OR (itbis_rate = ANY (ARRAY['-1'::integer, 0, 16, 18]))))
+- `chk_tipo_bs_valid` — CHECK (((tipo_bienes_servicios IS NULL) OR ((tipo_bienes_servicios >= 1) AND (tipo_bienes_servicios <= 11))))
 
 **Indexes**
 
@@ -495,7 +497,7 @@ Total tables: **153** (RLS enabled: **153**)
 - `acc_comp_dedupe_idx` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX acc_comp_dedupe_idx ON public.accounting_comprobantes USING btree (business_id, accounting_client_id, kind, ncf, fecha_comprobante) WHERE ((ncf IS NOT NULL) AND (ncf <> ''::text))`
 - `accounting_comprobantes_dedupe_uniq` (btree)
-  `CREATE UNIQUE INDEX accounting_comprobantes_dedupe_uniq ON public.accounting_comprobantes USING btree (business_id, accounting_client_id, kind, ncf, fecha_comprobante) NULLS NOT DISTINCT`
+  `CREATE UNIQUE INDEX accounting_comprobantes_dedupe_uniq ON public.accounting_comprobantes USING btree (business_id, accounting_client_id, kind, ncf, fecha_comprobante)`
 - `accounting_comprobantes_pkey` (btree)
   `CREATE UNIQUE INDEX accounting_comprobantes_pkey ON public.accounting_comprobantes USING btree (id)`
 - `accounting_comprobantes_supabase_id_key` (btree)
@@ -731,6 +733,7 @@ Total tables: **153** (RLS enabled: **153**)
 - `accounting_inbox_ocr_status_check` — CHECK ((ocr_status = ANY (ARRAY['pending'::text, 'done'::text, 'failed'::text])))
 - `accounting_inbox_source_check` — CHECK ((source = ANY (ARRAY['dropzone'::text, 'email'::text, 'whatsapp'::text, 'api'::text])))
 - `accounting_inbox_status_check` — CHECK ((status = ANY (ARRAY['unclassified'::text, 'classified'::text, 'posted'::text, 'archived'::text])))
+- `chk_inbox_confidence_range` — CHECK (((classification_confidence >= (0)::numeric) AND (classification_confidence <= (1)::numeric)))
 
 **Indexes**
 
@@ -747,7 +750,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `accounting_journal_entries`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -831,6 +834,10 @@ Total tables: **153** (RLS enabled: **153**)
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
 - `accounting_journal_lines_supabase_id_key` — UNIQUE (supabase_id)
+
+**Check Constraints**
+
+- `chk_je_line_debit_xor_credit` — CHECK ((NOT ((COALESCE(debit, (0)::numeric) > (0)::numeric) AND (COALESCE(credit, (0)::numeric) > (0)::numeric))))
 
 **Indexes**
 
@@ -1149,7 +1156,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `accounting_tasks`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **5**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1405,7 +1412,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `admin_users`
 
-- Rough row count (n_live_tup): **3**
+- Rough row count (n_live_tup): **2**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1502,7 +1509,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **797**
+- Rough row count (n_live_tup): **1180**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1530,7 +1537,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **301**
+- Rough row count (n_live_tup): **362**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1836,7 +1843,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **23**
+- Rough row count (n_live_tup): **38**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1879,7 +1886,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `caja_chica`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **10**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2096,7 +2103,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `categorias_servicio`
 
-- Rough row count (n_live_tup): **22**
+- Rough row count (n_live_tup): **33**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2145,6 +2152,80 @@ Total tables: **153** (RLS enabled: **153**)
   `CREATE UNIQUE INDEX uq_categorias_servicio_nombre ON public.categorias_servicio USING btree (business_id, nombre) WHERE ((nombre IS NOT NULL) AND (nombre <> ''::text))`
 - `uq_categorias_servicio_sid` (btree)
   `CREATE UNIQUE INDEX uq_categorias_servicio_sid ON public.categorias_servicio USING btree (business_id, supabase_id)`
+
+### `claude_alerts_pending`
+
+- Rough row count (n_live_tup): **0**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `id` | uuid | NO | gen_random_uuid() |  |
+| 2 | `business_id` | uuid | NO |  |  |
+| 3 | `feature` | text | NO |  |  |
+| 4 | `severity` | text | NO |  |  |
+| 5 | `message` | text | NO |  |  |
+| 6 | `to_phone` | text | YES |  |  |
+| 7 | `sent_at` | timestamp with time zone | YES |  |  |
+| 8 | `failed_reason` | text | YES |  |  |
+| 9 | `created_at` | timestamp with time zone | NO | now() |  |
+
+**Primary Key**
+
+- `claude_alerts_pending_pkey` — PRIMARY KEY (id)
+
+**Foreign Keys**
+
+- `claude_alerts_pending_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
+
+**Check Constraints**
+
+- `claude_alerts_pending_severity_check` — CHECK ((severity = ANY (ARRAY['info'::text, 'warn'::text, 'critical'::text])))
+
+**Indexes**
+
+- `claude_alerts_pending_pkey` (btree)
+  `CREATE UNIQUE INDEX claude_alerts_pending_pkey ON public.claude_alerts_pending USING btree (id)`
+- `idx_claude_alerts_pending_unsent` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_claude_alerts_pending_unsent ON public.claude_alerts_pending USING btree (created_at DESC) WHERE (sent_at IS NULL)`
+
+### `claude_feature_flags`
+
+- Rough row count (n_live_tup): **1**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `business_id` | uuid | NO |  |  |
+| 2 | `dgii_error_translator` | boolean | NO | false |  |
+| 3 | `cuadre_anomaly` | boolean | NO | false |  |
+| 4 | `insights_digest` | boolean | NO | false |  |
+| 5 | `reorder_suggestions` | boolean | NO | false |  |
+| 6 | `faq_autoreply` | boolean | NO | false |  |
+| 7 | `monthly_budget_usd` | numeric | NO | 2.00 |  |
+| 8 | `spent_this_month_usd` | numeric | NO | 0 |  |
+| 9 | `spent_reset_at` | date | NO | (date_trunc('month'::text, now()))::date |  |
+| 10 | `updated_at` | timestamp with time zone | NO | now() |  |
+| 11 | `updated_by` | text | YES |  |  |
+
+**Primary Key**
+
+- `claude_feature_flags_pkey` — PRIMARY KEY (business_id)
+
+**Foreign Keys**
+
+- `claude_feature_flags_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
+
+**Indexes**
+
+- `claude_feature_flags_pkey` (btree)
+  `CREATE UNIQUE INDEX claude_feature_flags_pkey ON public.claude_feature_flags USING btree (business_id)`
+- `idx_claude_feature_flags_updated_at` (btree)
+  `CREATE INDEX idx_claude_feature_flags_updated_at ON public.claude_feature_flags USING btree (updated_at DESC)`
 
 ### `client_dgii_credentials`
 
@@ -2201,7 +2282,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **167**
+- Rough row count (n_live_tup): **23731**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2235,7 +2316,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 **Check Constraints**
 
-- `client_errors_severity_check` — CHECK ((severity = ANY (ARRAY['error'::text, 'warning'::text, 'info'::text])))
+- `client_errors_severity_check` — CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'error'::text, 'critical'::text])))
 
 **Indexes**
 
@@ -2247,6 +2328,8 @@ Total tables: **153** (RLS enabled: **153**)
   `CREATE INDEX client_errors_severity_idx ON public.client_errors USING btree (severity, created_at DESC)`
 - `client_errors_unresolved_idx` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE INDEX client_errors_unresolved_idx ON public.client_errors USING btree (created_at DESC) WHERE (resolved_at IS NULL)`
+- `idx_client_errors_critical_undiagnosed` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_client_errors_critical_undiagnosed ON public.client_errors USING btree (created_at DESC) WHERE ((severity = 'critical'::text) AND ((metadata ? 'claude_diagnosis'::text) = false))`
 
 ### `client_item_prices`
 
@@ -2456,7 +2539,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `clients`
 
-- Rough row count (n_live_tup): **133**
+- Rough row count (n_live_tup): **134**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2718,7 +2801,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `credit_payments`
 
-- Rough row count (n_live_tup): **1**
+- Rough row count (n_live_tup): **2**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2878,9 +2961,41 @@ Total tables: **153** (RLS enabled: **153**)
 - `crm_leads_status_idx` (btree)
   `CREATE INDEX crm_leads_status_idx ON public.crm_leads USING btree (status)`
 
+### `cron_health_runs`
+
+- Rough row count (n_live_tup): **54**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `id` | uuid | NO | gen_random_uuid() |  |
+| 2 | `ran_at` | timestamp with time zone | NO | now() |  |
+| 3 | `total_checks` | integer | NO |  |  |
+| 4 | `passed_count` | integer | NO |  |  |
+| 5 | `failed_count` | integer | NO |  |  |
+| 6 | `failures` | jsonb | YES |  |  |
+| 7 | `duration_ms` | integer | YES |  |  |
+| 8 | `claude_diagnosed_at` | timestamp with time zone | YES |  |  |
+| 9 | `claude_diagnosis` | jsonb | YES |  |  |
+
+**Primary Key**
+
+- `cron_health_runs_pkey` — PRIMARY KEY (id)
+
+**Indexes**
+
+- `cron_health_runs_pkey` (btree)
+  `CREATE UNIQUE INDEX cron_health_runs_pkey ON public.cron_health_runs USING btree (id)`
+- `idx_cron_health_runs_ran_at` (btree)
+  `CREATE INDEX idx_cron_health_runs_ran_at ON public.cron_health_runs USING btree (ran_at DESC)`
+- `idx_cron_health_runs_undiagnosed_fails` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_cron_health_runs_undiagnosed_fails ON public.cron_health_runs USING btree (ran_at DESC) WHERE ((claude_diagnosed_at IS NULL) AND (failed_count > 0))`
+
 ### `cuadre_caja`
 
-- Rough row count (n_live_tup): **22**
+- Rough row count (n_live_tup): **27**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2927,7 +3042,6 @@ Total tables: **153** (RLS enabled: **153**)
 
 - `cuadre_caja_supabase_id_uniq` — UNIQUE (supabase_id)
 - `uq_cuadre_caja_biz_sid` — UNIQUE (business_id, supabase_id)
-- `uq_cuadre_caja_sid` — UNIQUE (business_id, supabase_id)
 
 **Foreign Keys**
 
@@ -2945,8 +3059,6 @@ Total tables: **153** (RLS enabled: **153**)
   `CREATE UNIQUE INDEX uq_cuadre_caja_biz_sid ON public.cuadre_caja USING btree (business_id, supabase_id)`
 - `uq_cuadre_caja_one_open_per_day` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_cuadre_caja_one_open_per_day ON public.cuadre_caja USING btree (business_id, date) WHERE (status = 'abierto'::text)`
-- `uq_cuadre_caja_sid` (btree)
-  `CREATE UNIQUE INDEX uq_cuadre_caja_sid ON public.cuadre_caja USING btree (business_id, supabase_id)`
 - `uq_cuadre_local` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_cuadre_local ON public.cuadre_caja USING btree (business_id, local_id) WHERE (local_id IS NOT NULL)`
 
@@ -2990,9 +3102,43 @@ Total tables: **153** (RLS enabled: **153**)
 - `idx_demo_sessions_vertical` (btree)
   `CREATE INDEX idx_demo_sessions_vertical ON public.demo_sessions USING btree (vertical)`
 
+### `deploy_smoke_results`
+
+- Rough row count (n_live_tup): **117**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `id` | uuid | NO | gen_random_uuid() |  |
+| 2 | `ran_at` | timestamp with time zone | NO | now() |  |
+| 3 | `bundle_hash` | text | YES |  |  |
+| 4 | `passed_count` | integer | NO |  |  |
+| 5 | `failed_count` | integer | NO |  |  |
+| 6 | `total_count` | integer | NO |  |  |
+| 7 | `failures` | jsonb | YES |  |  |
+| 8 | `duration_ms` | integer | YES |  |  |
+| 9 | `source` | text | YES |  |  |
+| 10 | `claude_diagnosed_at` | timestamp with time zone | YES |  |  |
+| 11 | `claude_diagnosis` | jsonb | YES |  |  |
+
+**Primary Key**
+
+- `deploy_smoke_results_pkey` — PRIMARY KEY (id)
+
+**Indexes**
+
+- `deploy_smoke_results_pkey` (btree)
+  `CREATE UNIQUE INDEX deploy_smoke_results_pkey ON public.deploy_smoke_results USING btree (id)`
+- `idx_deploy_smoke_results_ran_at` (btree)
+  `CREATE INDEX idx_deploy_smoke_results_ran_at ON public.deploy_smoke_results USING btree (ran_at DESC)`
+- `idx_deploy_smoke_results_undiagnosed_fails` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_deploy_smoke_results_undiagnosed_fails ON public.deploy_smoke_results USING btree (ran_at DESC) WHERE (claude_diagnosed_at IS NULL)`
+
 ### `dgii_seed_nonces`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **48**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3016,7 +3162,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `doc_number_blocks`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **3**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3072,7 +3218,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `doc_number_master`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3534,7 +3680,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `empleados`
 
-- Rough row count (n_live_tup): **99**
+- Rough row count (n_live_tup): **104**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3648,6 +3794,39 @@ Total tables: **153** (RLS enabled: **153**)
 - `firm_memberships_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX firm_memberships_supabase_id_key ON public.firm_memberships USING btree (supabase_id)`
 
+### `flow_drift_runs`
+
+- Rough row count (n_live_tup): **115**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `id` | uuid | NO | gen_random_uuid() |  |
+| 2 | `ran_at` | timestamp with time zone | NO | now() |  |
+| 3 | `passed_count` | integer | NO |  |  |
+| 4 | `failed_count` | integer | NO |  |  |
+| 5 | `total_count` | integer | NO |  |  |
+| 6 | `failures` | jsonb | YES |  |  |
+| 7 | `duration_ms` | integer | YES |  |  |
+| 8 | `source` | text | YES |  |  |
+| 9 | `claude_diagnosed_at` | timestamp with time zone | YES |  |  |
+| 10 | `claude_diagnosis` | jsonb | YES |  |  |
+
+**Primary Key**
+
+- `flow_drift_runs_pkey` — PRIMARY KEY (id)
+
+**Indexes**
+
+- `flow_drift_runs_pkey` (btree)
+  `CREATE UNIQUE INDEX flow_drift_runs_pkey ON public.flow_drift_runs USING btree (id)`
+- `idx_flow_drift_runs_ran_at` (btree)
+  `CREATE INDEX idx_flow_drift_runs_ran_at ON public.flow_drift_runs USING btree (ran_at DESC)`
+- `idx_flow_drift_runs_undiagnosed` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_flow_drift_runs_undiagnosed ON public.flow_drift_runs USING btree (ran_at DESC) WHERE (claude_diagnosed_at IS NULL)`
+
 ### `food_truck_locations`
 
 - Rough row count (n_live_tup): **4**
@@ -3747,7 +3926,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **1732**
+- Rough row count (n_live_tup): **112**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3804,7 +3983,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `inventory_counts`
 
-- Rough row count (n_live_tup): **17**
+- Rough row count (n_live_tup): **5**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3943,7 +4122,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `inventory_items`
 
-- Rough row count (n_live_tup): **1249**
+- Rough row count (n_live_tup): **1797**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3997,6 +4176,14 @@ Total tables: **153** (RLS enabled: **153**)
 **Foreign Keys**
 
 - `inventory_items_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
+
+**Check Constraints**
+
+- `chk_inventory_cost_nonneg` — CHECK (((cost IS NULL) OR (cost >= (0)::numeric)))
+- `chk_inventory_minqty_nonneg` — CHECK (((min_quantity IS NULL) OR (min_quantity >= 0)))
+- `chk_inventory_name_not_blank` — CHECK ((length(regexp_replace(COALESCE(name, ''::text), '\s'::text, ''::text, 'g'::text)) > 0))
+- `chk_inventory_price_nonneg` — CHECK (((price IS NULL) OR (price >= (0)::numeric)))
+- `chk_inventory_quantity_nonneg` — CHECK (((quantity IS NULL) OR (quantity >= 0)))
 
 **Indexes**
 
@@ -4070,7 +4257,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `inventory_transactions`
 
-- Rough row count (n_live_tup): **1**
+- Rough row count (n_live_tup): **0**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4305,7 +4492,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2497**
+- Rough row count (n_live_tup): **2665**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4344,7 +4531,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `license_jwt_audit`
 
-- Rough row count (n_live_tup): **93**
+- Rough row count (n_live_tup): **102**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4421,7 +4608,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `licenses`
 
-- Rough row count (n_live_tup): **20**
+- Rough row count (n_live_tup): **25**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4722,7 +4909,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `loyalty_transactions`
 
-- Rough row count (n_live_tup): **93**
+- Rough row count (n_live_tup): **95**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4869,6 +5056,41 @@ Total tables: **153** (RLS enabled: **153**)
 - `mechanic_commissions_wo_tech_uk` (btree)
   `CREATE UNIQUE INDEX mechanic_commissions_wo_tech_uk ON public.mechanic_commissions USING btree (business_id, work_order_supabase_id, technician_empleado_supabase_id)`
 
+### `mega_smoke_runs`
+
+- Rough row count (n_live_tup): **50**
+- RLS enabled: **YES**
+
+**Columns**
+
+| # | column | type | nullable | default | generated |
+|---|--------|------|----------|---------|-----------|
+| 1 | `id` | uuid | NO | gen_random_uuid() |  |
+| 2 | `ran_at` | timestamp with time zone | NO | now() |  |
+| 3 | `source` | text | NO |  |  |
+| 4 | `total_count` | integer | NO |  |  |
+| 5 | `passed_count` | integer | NO |  |  |
+| 6 | `failed_count` | integer | NO |  |  |
+| 7 | `duration_ms` | integer | NO |  |  |
+| 8 | `failures` | jsonb | YES |  |  |
+| 9 | `whatsapp_sent_count` | integer | NO | 0 |  |
+| 10 | `whatsapp_summary` | jsonb | YES |  |  |
+| 11 | `claude_diagnosed_at` | timestamp with time zone | YES |  |  |
+| 12 | `claude_diagnosis` | jsonb | YES |  |  |
+
+**Primary Key**
+
+- `mega_smoke_runs_pkey` — PRIMARY KEY (id)
+
+**Indexes**
+
+- `idx_mega_smoke_runs_ran_at` (btree)
+  `CREATE INDEX idx_mega_smoke_runs_ran_at ON public.mega_smoke_runs USING btree (ran_at DESC)`
+- `idx_mega_smoke_runs_undiagnosed` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_mega_smoke_runs_undiagnosed ON public.mega_smoke_runs USING btree (ran_at DESC) WHERE ((claude_diagnosed_at IS NULL) AND (failed_count > 0))`
+- `mega_smoke_runs_pkey` (btree)
+  `CREATE UNIQUE INDEX mega_smoke_runs_pkey ON public.mega_smoke_runs USING btree (id)`
+
 ### `membership_redemptions`
 
 - Rough row count (n_live_tup): **0**
@@ -4977,7 +5199,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `mesas`
 
-- Rough row count (n_live_tup): **26**
+- Rough row count (n_live_tup): **27**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5127,7 +5349,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `ncf_blocks`
 
-- Rough row count (n_live_tup): **3**
+- Rough row count (n_live_tup): **21**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5184,7 +5406,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `ncf_sequences`
 
-- Rough row count (n_live_tup): **89**
+- Rough row count (n_live_tup): **99**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5215,7 +5437,6 @@ Total tables: **153** (RLS enabled: **153**)
 - `ncf_sequences_supabase_id_uniq` — UNIQUE (supabase_id)
 - `uq_ncf_sequences_biz_sid` — UNIQUE (business_id, supabase_id)
 - `uq_ncf_sequences_biz_type_prefix` — UNIQUE (business_id, type, prefix)
-- `uq_ncf_sequences_sid` — UNIQUE (business_id, supabase_id)
 
 **Foreign Keys**
 
@@ -5225,10 +5446,6 @@ Total tables: **153** (RLS enabled: **153**)
 
 - `idx_ncf_seq_business` (btree)
   `CREATE INDEX idx_ncf_seq_business ON public.ncf_sequences USING btree (business_id)`
-- `idx_ncf_seq_local` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
-  `CREATE INDEX idx_ncf_seq_local ON public.ncf_sequences USING btree (business_id, local_id) WHERE (local_id IS NOT NULL)`
-- `ncf_sequences_business_id_type_uniq` (btree)
-  `CREATE UNIQUE INDEX ncf_sequences_business_id_type_uniq ON public.ncf_sequences USING btree (business_id, type)`
 - `ncf_sequences_business_type_uniq` (btree)
   `CREATE UNIQUE INDEX ncf_sequences_business_type_uniq ON public.ncf_sequences USING btree (business_id, type)`
 - `ncf_sequences_pkey` (btree)
@@ -5241,12 +5458,10 @@ Total tables: **153** (RLS enabled: **153**)
   `CREATE UNIQUE INDEX uq_ncf_sequences_biz_sid ON public.ncf_sequences USING btree (business_id, supabase_id)`
 - `uq_ncf_sequences_biz_type_prefix` (btree)
   `CREATE UNIQUE INDEX uq_ncf_sequences_biz_type_prefix ON public.ncf_sequences USING btree (business_id, type, prefix)`
-- `uq_ncf_sequences_sid` (btree)
-  `CREATE UNIQUE INDEX uq_ncf_sequences_sid ON public.ncf_sequences USING btree (business_id, supabase_id)`
 
 ### `ncf_sequences_master`
 
-- Rough row count (n_live_tup): **5**
+- Rough row count (n_live_tup): **8**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5940,7 +6155,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `queue`
 
-- Rough row count (n_live_tup): **8**
+- Rough row count (n_live_tup): **9**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6209,7 +6424,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `salary_changes`
 
-- Rough row count (n_live_tup): **5**
+- Rough row count (n_live_tup): **10**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6609,7 +6824,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `service_recipe_items`
 
-- Rough row count (n_live_tup): **28**
+- Rough row count (n_live_tup): **42**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6657,7 +6872,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `services`
 
-- Rough row count (n_live_tup): **297**
+- Rough row count (n_live_tup): **313**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6735,7 +6950,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `staff`
 
-- Rough row count (n_live_tup): **23**
+- Rough row count (n_live_tup): **31**
 - RLS enabled: **YES**
 
 **Columns**
@@ -6766,6 +6981,7 @@ Total tables: **153** (RLS enabled: **153**)
 | 23 | `pin_salt` | text | YES |  |  |
 | 24 | `pin_failed_attempts` | integer | NO | 0 |  |
 | 25 | `pin_locked_until` | timestamp with time zone | YES |  |  |
+| 26 | `empleado_supabase_id` | uuid | YES |  |  |
 
 **Primary Key**
 
@@ -6785,12 +7001,15 @@ Total tables: **153** (RLS enabled: **153**)
 
 **Check Constraints**
 
+- `chk_staff_username_not_blank` — CHECK ((length(TRIM(BOTH FROM username)) > 0))
 - `staff_pin_hash_algo_matches_hash` — CHECK (((pin_hash IS NULL) OR ((pin_hash ~~ '$2a$%'::text) AND (pin_hash_algo = 'bcrypt'::text)) OR ((pin_hash !~~ '$2%'::text) AND (pin_hash_algo = ANY (ARRAY['sha256'::text, 'sha256-legacy'::text]))))) NOT VALID
 
 **Indexes**
 
 - `idx_staff_business` (btree)
   `CREATE INDEX idx_staff_business ON public.staff USING btree (business_id)`
+- `idx_staff_empleado_supabase_id` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_staff_empleado_supabase_id ON public.staff USING btree (empleado_supabase_id) WHERE (empleado_supabase_id IS NOT NULL)`
 - `idx_staff_local` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE INDEX idx_staff_local ON public.staff USING btree (business_id, local_id) WHERE (local_id IS NOT NULL)`
 - `idx_staff_mgr_auth_hash` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -7102,7 +7321,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `ticket_items`
 
-- Rough row count (n_live_tup): **1124**
+- Rough row count (n_live_tup): **1057**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7156,6 +7375,8 @@ Total tables: **153** (RLS enabled: **153**)
 
 **Foreign Keys**
 
+- `fk_ticket_items_inventory_item_sid` — FOREIGN KEY (inventory_item_supabase_id) REFERENCES inventory_items(supabase_id) ON DELETE SET NULL  _(ON DELETE SET NULL, ON UPDATE NO ACTION)_
+- `fk_ticket_items_service_sid` — FOREIGN KEY (service_supabase_id) REFERENCES services(supabase_id) ON DELETE SET NULL  _(ON DELETE SET NULL, ON UPDATE NO ACTION)_
 - `ticket_items_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
 - `ticket_items_ticket_id_fkey` — FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
 - `ticket_items_ticket_supabase_id_fkey` — FOREIGN KEY (ticket_supabase_id) REFERENCES tickets(supabase_id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
@@ -7219,7 +7440,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `tickets`
 
-- Rough row count (n_live_tup): **454**
+- Rough row count (n_live_tup): **415**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7298,6 +7519,7 @@ Total tables: **153** (RLS enabled: **153**)
 | 72 | `open_status` | text | YES | 'closed'::text |  |
 | 73 | `food_truck_location_supabase_id` | uuid | YES |  |  |
 | 74 | `client_rnc` | text | YES |  |  |
+| 75 | `cuadre_supabase_id` | uuid | YES |  |  |
 
 **Primary Key**
 
@@ -7310,10 +7532,12 @@ Total tables: **153** (RLS enabled: **153**)
 
 **Foreign Keys**
 
+- `fk_tickets_cuadre_supabase_id` — FOREIGN KEY (cuadre_supabase_id) REFERENCES cuadre_caja(supabase_id) ON DELETE SET NULL  _(ON DELETE SET NULL, ON UPDATE NO ACTION)_
 - `tickets_business_id_fkey` — FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE  _(ON DELETE CASCADE, ON UPDATE NO ACTION)_
 
 **Check Constraints**
 
+- `chk_e31_requires_rnc` — CHECK ((NOT (((ncf_type = 'E31'::text) OR ((ncf IS NOT NULL) AND (ncf ~~ 'E31%'::text))) AND ((client_rnc IS NULL) OR (client_rnc !~ '\S'::text)))))
 - `tickets_currency_chk` — CHECK (((currency IS NULL) OR (currency = ANY (ARRAY['DOP'::text, 'USD'::text]))))
 
 **Indexes**
@@ -7328,6 +7552,8 @@ Total tables: **153** (RLS enabled: **153**)
   `CREATE INDEX idx_tickets_client_rnc ON public.tickets USING btree (client_rnc) WHERE (client_rnc IS NOT NULL)`
 - `idx_tickets_created` (btree)
   `CREATE INDEX idx_tickets_created ON public.tickets USING btree (business_id, created_at DESC)`
+- `idx_tickets_cuadre_supabase_id` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE INDEX idx_tickets_cuadre_supabase_id ON public.tickets USING btree (cuadre_supabase_id) WHERE (cuadre_supabase_id IS NOT NULL)`
 - `idx_tickets_ecf_result_gin` (gin)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE INDEX idx_tickets_ecf_result_gin ON public.tickets USING gin (ecf_result jsonb_path_ops) WHERE (ecf_result IS NOT NULL)`
 - `idx_tickets_food_truck_location` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -7363,7 +7589,7 @@ Total tables: **153** (RLS enabled: **153**)
 
 ### `vehicle_documents`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -8055,7 +8281,7 @@ SELECT schemaname, tablename, policyname, permissive, roles, cmd,
   ORDER BY tablename, policyname;
 ```
 
-Total policies: **415**
+Total policies: **421**
 
 ### Claim-path audit (post-2026-04-29 swap to `app_metadata`)
 
@@ -9774,6 +10000,48 @@ true
 ((business_id = (NULLIF(((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text), ''::text))::uuid) OR (business_id IN ( SELECT my_business_ids() AS my_business_ids)))
 ```
 
+### `claude_alerts_pending`
+
+#### `service_role_only`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {service_role}
+- claim path: —
+
+**USING**
+
+```sql
+true
+```
+
+**WITH CHECK**
+
+```sql
+true
+```
+
+### `claude_feature_flags`
+
+#### `service_role_only`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {service_role}
+- claim path: —
+
+**USING**
+
+```sql
+true
+```
+
+**WITH CHECK**
+
+```sql
+true
+```
+
 ### `client_dgii_credentials`
 
 #### `client_dgii_creds_insert`
@@ -10337,6 +10605,27 @@ false
 false
 ```
 
+### `cron_health_runs`
+
+#### `service_role_only`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {service_role}
+- claim path: —
+
+**USING**
+
+```sql
+true
+```
+
+**WITH CHECK**
+
+```sql
+true
+```
+
 ### `cuadre_caja`
 
 #### `cuadre_caja_ins_auth`
@@ -10410,6 +10699,27 @@ false
 
 ```sql
 ((vertical IS NOT NULL) AND (length(vertical) <= 64))
+```
+
+### `deploy_smoke_results`
+
+#### `service_role_only`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {service_role}
+- claim path: —
+
+**USING**
+
+```sql
+true
+```
+
+**WITH CHECK**
+
+```sql
+true
 ```
 
 ### `dgii_seed_nonces`
@@ -10865,6 +11175,27 @@ true
 
 ```sql
 (firm_business_id IS NOT NULL)
+```
+
+### `flow_drift_runs`
+
+#### `service_role_only`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {service_role}
+- claim path: —
+
+**USING**
+
+```sql
+true
+```
+
+**WITH CHECK**
+
+```sql
+true
 ```
 
 ### `food_truck_locations`
@@ -11914,6 +12245,27 @@ true
 
 ```sql
 ((business_id = (NULLIF(((auth.jwt() -> 'app_metadata'::text) ->> 'business_id'::text), ''::text))::uuid) OR (business_id IN ( SELECT my_business_ids() AS my_business_ids)))
+```
+
+### `mega_smoke_runs`
+
+#### `service_role_only`
+
+- cmd: **ALL**
+- permissive: PERMISSIVE
+- roles: {service_role}
+- claim path: —
+
+**USING**
+
+```sql
+true
+```
+
+**WITH CHECK**
+
+```sql
+true
 ```
 
 ### `membership_redemptions`
@@ -14753,7 +15105,7 @@ SELECT n.nspname  AS schema,
   ORDER BY p.proname;
 ```
 
-Total functions: **247**
+Total functions: **262**
 
 ### `_touch_updated_at()`
 
@@ -14967,6 +15319,47 @@ BEGIN
 END;
 ```
 
+### `bump_claude_usage(p_business_id uuid, p_cost_usd numeric)`
+
+- returns: `boolean`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE
+  v_budget   NUMERIC;
+  v_spent    NUMERIC;
+  v_reset_at DATE;
+BEGIN
+  SELECT monthly_budget_usd, spent_this_month_usd, spent_reset_at
+    INTO v_budget, v_spent, v_reset_at
+  FROM public.claude_feature_flags
+  WHERE business_id = p_business_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  IF v_reset_at < date_trunc('month', now())::date THEN
+    v_spent    := 0;
+    v_reset_at := date_trunc('month', now())::date;
+  END IF;
+
+  IF (v_spent + COALESCE(p_cost_usd, 0)) > v_budget THEN
+    RETURN false;
+  END IF;
+
+  UPDATE public.claude_feature_flags
+     SET spent_this_month_usd = v_spent + COALESCE(p_cost_usd, 0),
+         spent_reset_at       = v_reset_at,
+         updated_at           = now()
+   WHERE business_id = p_business_id;
+
+  RETURN true;
+END
+```
+
 ### `cash_dist(money, money)`
 
 - returns: `money`
@@ -15172,6 +15565,7 @@ DECLARE
   post_qty   NUMERIC;
   pre_qty    NUMERIC;
   oversells  JSONB := '[]'::JSONB;
+  exists_ct  INT;
 BEGIN
   IF p_business_id IS NULL THEN
     RAISE EXCEPTION 'business_id required';
@@ -15182,7 +15576,12 @@ BEGIN
     req_qty  := (it->>'qty')::NUMERIC;
     item_nm  := it->>'name';
 
-    -- Guarded deduct
+    -- Skip unknown items entirely (was writing ghost oversells with actual_qty=0).
+    SELECT COUNT(*) INTO exists_ct FROM inventory_items
+      WHERE business_id = p_business_id AND supabase_id = item_sid;
+    IF exists_ct = 0 THEN CONTINUE; END IF;
+
+    -- Guarded deduct (happy path: stock sufficient).
     UPDATE inventory_items
        SET quantity   = quantity - req_qty,
            updated_at = now()
@@ -15192,14 +15591,15 @@ BEGIN
     RETURNING quantity INTO post_qty;
 
     IF NOT FOUND THEN
-      -- Oversell: read current qty, then forcibly deduct anyway
+      -- Oversell: clamp at zero so chk_inventory_quantity_nonneg passes,
+      -- then record oversell row for audit. Real shortfall = req_qty - pre_qty.
       SELECT quantity, COALESCE(item_nm, name)
         INTO pre_qty, item_nm
         FROM inventory_items
        WHERE business_id = p_business_id AND supabase_id = item_sid;
 
       UPDATE inventory_items
-         SET quantity   = quantity - req_qty,
+         SET quantity   = GREATEST(0, quantity - req_qty),
              updated_at = now()
        WHERE business_id = p_business_id
          AND supabase_id = item_sid
@@ -15216,14 +15616,7 @@ BEGIN
         'requested_qty',    req_qty,
         'actual_qty',       COALESCE(pre_qty, 0),
         'post_qty',         COALESCE(post_qty, 0)
-      );
-    END IF;
-  END LOOP;
-
-  RETURN json_build_object('ok', true, 'oversells', oversells);
-EXCEPTION WHEN OTHERS THEN
-  RETURN json_build_object('ok', false, 'error', SQLERRM);
--- … (1 more lines truncated)
+-- … (8 more lines truncated)
 ```
 
 ### `ecf_cert_history_set_updated_at()`
@@ -17857,6 +18250,31 @@ time_dist
 BEGIN NEW.updated_at = now(); RETURN NEW; END
 ```
 
+### `trg_accounting_clients_cap()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE _plan text; _count int; _cap int;
+BEGIN
+  IF current_setting('role', true) IN ('service_role','postgres') THEN RETURN NEW; END IF;
+  SELECT plan INTO _plan FROM businesses WHERE id = NEW.business_id;
+  -- Pro MAX / contabilidad_max → unlimited
+  IF _plan IN ('pro_max','contabilidad_max') THEN RETURN NEW; END IF;
+  -- Everyone else: 10-client cap (Pro PLUS tier)
+  SELECT COUNT(*) INTO _count FROM accounting_clients
+    WHERE business_id = NEW.business_id AND status <> 'archived';
+  _cap := 10;
+  IF _count >= _cap THEN
+    RAISE EXCEPTION 'accounting_clients_cap_exceeded: plan=% allows max=% (current=%). Upgrade to Pro MAX for unlimited.',
+      _plan, _cap, _count USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+```
+
 ### `trg_activity_log_immutable()`
 
 - returns: `trigger`
@@ -17878,6 +18296,22 @@ END;
 
 ```plpgsql
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
+```
+
+### `trg_comprobante_period_derive()`
+
+- returns: `trigger`
+- security: **INVOKER**
+- language: plpgsql
+
+```plpgsql
+BEGIN
+  IF NEW.fecha_comprobante IS NOT NULL THEN
+    NEW.period_year  := EXTRACT(YEAR  FROM NEW.fecha_comprobante)::int;
+    NEW.period_month := EXTRACT(MONTH FROM NEW.fecha_comprobante)::int;
+  END IF;
+  RETURN NEW;
+END;
 ```
 
 ### `trg_credit_ticket_bump_balance()`
@@ -17908,6 +18342,79 @@ BEGIN
 END;
 ```
 
+### `trg_empleados_change_audit()`
+
+- returns: `trigger`
+- security: **INVOKER**
+- language: plpgsql
+
+```plpgsql
+BEGIN
+  IF NEW.salary IS DISTINCT FROM OLD.salary THEN
+    INSERT INTO activity_log (supabase_id, business_id, event_type, severity, target_type, target_id, target_name, amount, old_value, new_value, created_at, updated_at)
+    VALUES (gen_random_uuid(), NEW.business_id, 'empleado_salary_change', 'critical',
+      'empleado', NEW.id::text, NEW.nombre, NEW.salary,
+      OLD.salary::text, NEW.salary::text, NOW(), NOW());
+  END IF;
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    INSERT INTO activity_log (supabase_id, business_id, event_type, severity, target_type, target_id, target_name, old_value, new_value, created_at, updated_at)
+    VALUES (gen_random_uuid(), NEW.business_id, 'empleado_role_change', 'critical',
+      'empleado', NEW.id::text, NEW.nombre, OLD.role, NEW.role, NOW(), NOW());
+  END IF;
+  RETURN NEW;
+END;
+```
+
+### `trg_empleados_role_guard()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE
+  caller_uid uuid; caller_role text;
+  caller_role_level int; new_role_level int;
+BEGIN
+  IF current_setting('role', true) IN ('service_role', 'postgres') THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.role IS NOT DISTINCT FROM OLD.role THEN
+    RETURN NEW;
+  END IF;
+
+  caller_uid := auth.uid();
+  IF caller_uid IS NULL THEN
+    RAISE EXCEPTION 'role_change_requires_authenticated_session' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT s.role INTO caller_role
+  FROM staff s
+  WHERE s.auth_user_id = caller_uid AND s.business_id = NEW.business_id AND s.active = true
+  LIMIT 1;
+
+  IF caller_role IS NULL THEN
+    RAISE EXCEPTION 'caller_not_in_target_business' USING ERRCODE = '42501';
+  END IF;
+
+  caller_role_level := CASE caller_role
+    WHEN 'owner' THEN 100 WHEN 'cfo' THEN 80 WHEN 'manager' THEN 60
+    WHEN 'accountant' THEN 40 WHEN 'cashier' THEN 20 WHEN 'kitchen' THEN 10 ELSE 0 END;
+  new_role_level := CASE NEW.role
+    WHEN 'owner' THEN 100 WHEN 'cfo' THEN 80 WHEN 'manager' THEN 60
+    WHEN 'accountant' THEN 40 WHEN 'cashier' THEN 20 WHEN 'kitchen' THEN 10 ELSE 0 END;
+
+  IF NEW.role IN ('owner','cfo') AND caller_role <> 'owner' THEN
+    RAISE EXCEPTION 'only_owner_can_assign_role_%', NEW.role USING ERRCODE = '42501';
+  END IF;
+  IF caller_role <> 'owner' AND new_role_level >= caller_role_level THEN
+    RAISE EXCEPTION 'cannot_assign_role_equal_or_higher_than_caller' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+```
+
 ### `trg_insurance_batches_set_updated_at()`
 
 - returns: `trigger`
@@ -17916,6 +18423,57 @@ END;
 
 ```plpgsql
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
+```
+
+### `trg_inventory_price_audit()`
+
+- returns: `trigger`
+- security: **INVOKER**
+- language: plpgsql
+
+```plpgsql
+BEGIN
+  IF NEW.price IS DISTINCT FROM OLD.price OR NEW.cost IS DISTINCT FROM OLD.cost THEN
+    INSERT INTO activity_log (
+      supabase_id, business_id, event_type, severity,
+      target_type, target_id, target_name,
+      old_value, new_value, metadata, created_at, updated_at
+    ) VALUES (
+      gen_random_uuid(), NEW.business_id,
+      CASE WHEN NEW.price IS DISTINCT FROM OLD.price AND NEW.cost IS DISTINCT FROM OLD.cost THEN 'inventory_price_cost_change'
+           WHEN NEW.price IS DISTINCT FROM OLD.price THEN 'inventory_price_change'
+           ELSE 'inventory_cost_change' END,
+      'warn',
+      'inventory_item', NEW.id::text, NEW.name,
+      jsonb_build_object('price', OLD.price, 'cost', OLD.cost)::text,
+      jsonb_build_object('price', NEW.price, 'cost', NEW.cost)::text,
+      jsonb_build_object('sku', NEW.sku),
+      NOW(), NOW()
+    );
+  END IF;
+  RETURN NEW;
+END;
+```
+
+### `trg_je_balance_check()`
+
+- returns: `trigger`
+- security: **INVOKER**
+- language: plpgsql
+
+```plpgsql
+BEGIN
+  -- Only enforce for posted entries (drafts allowed to be in-progress)
+  IF NEW.status IN ('posted', 'reversed') THEN
+    IF ABS(COALESCE(NEW.totals_debit,0) - COALESCE(NEW.totals_credit,0)) > 0.005 THEN
+      RAISE EXCEPTION 'journal_entry_imbalanced: debit=% credit=% diff=%',
+        NEW.totals_debit, NEW.totals_credit,
+        (NEW.totals_debit - NEW.totals_credit)
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
 ```
 
 ### `trg_mechanic_commissions_set_updated_at()`
@@ -17979,6 +18537,203 @@ BEGIN
   IF NEW.updated_at IS NULL THEN NEW.updated_at := now(); END IF;
   RETURN NEW;
 END
+```
+
+### `trg_staff_change_audit()`
+
+- returns: `trigger`
+- security: **INVOKER**
+- language: plpgsql
+
+```plpgsql
+BEGIN
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    INSERT INTO activity_log (supabase_id, business_id, event_type, severity, target_type, target_id, target_name, old_value, new_value, created_at, updated_at)
+    VALUES (gen_random_uuid(), NEW.business_id, 'staff_role_change', 'critical',
+      'staff', NEW.id::text, NEW.name || ' (@' || NEW.username || ')',
+      OLD.role, NEW.role, NOW(), NOW());
+  END IF;
+  IF NEW.pin_hash IS DISTINCT FROM OLD.pin_hash THEN
+    -- Don't store the hash itself; just flag the event.
+    INSERT INTO activity_log (supabase_id, business_id, event_type, severity, target_type, target_id, target_name, created_at, updated_at)
+    VALUES (gen_random_uuid(), NEW.business_id, 'staff_pin_change', 'critical',
+      'staff', NEW.id::text, NEW.name || ' (@' || NEW.username || ')',
+      NOW(), NOW());
+  END IF;
+  IF NEW.active IS DISTINCT FROM OLD.active THEN
+    INSERT INTO activity_log (supabase_id, business_id, event_type, severity, target_type, target_id, target_name, old_value, new_value, created_at, updated_at)
+    VALUES (gen_random_uuid(), NEW.business_id,
+      CASE WHEN NEW.active THEN 'staff_reactivated' ELSE 'staff_deactivated' END,
+      'warn', 'staff', NEW.id::text, NEW.name || ' (@' || NEW.username || ')',
+      OLD.active::text, NEW.active::text, NOW(), NOW());
+  END IF;
+  RETURN NEW;
+END;
+```
+
+### `trg_staff_last_owner_deactivate_guard()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE _other_owners int;
+BEGIN
+  IF current_setting('role', true) IN ('service_role','postgres') THEN RETURN NEW; END IF;
+  IF NEW.active IS NOT DISTINCT FROM OLD.active THEN RETURN NEW; END IF;
+  IF OLD.role = 'owner' AND OLD.active = true AND NEW.active = false THEN
+    SELECT COUNT(*) INTO _other_owners FROM staff
+    WHERE business_id = NEW.business_id AND active = true AND role = 'owner' AND id <> NEW.id;
+    IF _other_owners = 0 THEN
+      RAISE EXCEPTION 'last_owner_cannot_deactivate: at least one active owner required'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+```
+
+### `trg_staff_last_owner_guard()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE _other_owners int;
+BEGIN
+  IF current_setting('role', true) IN ('service_role','postgres') THEN RETURN NEW; END IF;
+  IF NEW.role IS NOT DISTINCT FROM OLD.role THEN RETURN NEW; END IF;
+  IF OLD.role = 'owner' AND NEW.role <> 'owner' THEN
+    SELECT COUNT(*) INTO _other_owners FROM staff
+    WHERE business_id = NEW.business_id AND active = true AND role = 'owner' AND id <> NEW.id;
+    IF _other_owners = 0 THEN
+      RAISE EXCEPTION 'last_owner_cannot_self_downgrade: at least one active owner required'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+```
+
+### `trg_staff_pin_guard()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE
+  caller_uid uuid;
+  caller_staff RECORD;
+BEGIN
+  IF current_setting('role', true) IN ('service_role', 'postgres') THEN
+    RETURN NEW;
+  END IF;
+  -- No PIN change → nothing to enforce.
+  IF NEW.pin_hash IS NOT DISTINCT FROM OLD.pin_hash THEN
+    RETURN NEW;
+  END IF;
+
+  caller_uid := auth.uid();
+  IF caller_uid IS NULL THEN
+    RAISE EXCEPTION 'pin_change_requires_authenticated_session' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT s.id, s.role INTO caller_staff
+  FROM staff s
+  WHERE s.auth_user_id = caller_uid
+    AND s.business_id = NEW.business_id
+    AND s.active = true
+  LIMIT 1;
+
+  IF caller_staff.id IS NULL THEN
+    RAISE EXCEPTION 'caller_not_in_target_business' USING ERRCODE = '42501';
+  END IF;
+
+  -- Self-change: allowed (web.js verifies oldPin before this fires).
+  IF caller_staff.id = NEW.id THEN
+    RETURN NEW;
+  END IF;
+
+  -- Non-self PIN reset is owner-only. Managers must escalate via a service-role
+  -- endpoint after passing ManagerAuthGate; that path bypasses this trigger.
+  IF caller_staff.role <> 'owner' THEN
+    RAISE EXCEPTION 'only_owner_can_reset_another_users_pin' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+```
+
+### `trg_staff_role_guard()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE
+  caller_uid uuid;
+  caller_role text;
+  caller_role_level int;
+  new_role_level int;
+BEGIN
+  -- Service role / superuser bypass — sync, migrations, scripts.
+  IF current_setting('role', true) IN ('service_role', 'postgres') THEN
+    RETURN NEW;
+  END IF;
+
+  -- No role change → nothing to enforce.
+  IF NEW.role IS NOT DISTINCT FROM OLD.role THEN
+    RETURN NEW;
+  END IF;
+
+  -- Resolve caller's staff row in the same business.
+  caller_uid := auth.uid();
+  IF caller_uid IS NULL THEN
+    RAISE EXCEPTION 'role_change_requires_authenticated_session'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT s.role INTO caller_role
+  FROM staff s
+  WHERE s.auth_user_id = caller_uid
+    AND s.business_id = NEW.business_id
+    AND s.active = true
+  LIMIT 1;
+
+  IF caller_role IS NULL THEN
+    RAISE EXCEPTION 'caller_not_in_target_business'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Role hierarchy (mirrors web.js ROLE_LEVEL):
+  --   owner=100, cfo=80, manager=60, accountant=40, cashier=20, kitchen=10, none=0
+  caller_role_level := CASE caller_role
+    WHEN 'owner' THEN 100 WHEN 'cfo' THEN 80 WHEN 'manager' THEN 60
+    WHEN 'accountant' THEN 40 WHEN 'cashier' THEN 20 WHEN 'kitchen' THEN 10
+    ELSE 0 END;
+  new_role_level := CASE NEW.role
+    WHEN 'owner' THEN 100 WHEN 'cfo' THEN 80 WHEN 'manager' THEN 60
+    WHEN 'accountant' THEN 40 WHEN 'cashier' THEN 20 WHEN 'kitchen' THEN 10
+    ELSE 0 END;
+
+  -- Only owner can assign owner or cfo.
+  IF NEW.role IN ('owner','cfo') AND caller_role <> 'owner' THEN
+    RAISE EXCEPTION 'only_owner_can_assign_role_%', NEW.role
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Caller cannot promote to a level >= their own (unless caller is owner).
+  IF caller_role <> 'owner' AND new_role_level >= caller_role_level THEN
+    RAISE EXCEPTION 'cannot_assign_role_equal_or_higher_than_caller'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+-- … (2 more lines truncated)
 ```
 
 ### `trg_suppliers_set_updated_at()`
@@ -18055,6 +18810,68 @@ BEGIN
 END;
 ```
 
+### `trg_ticket_items_in_stock_guard()`
+
+- returns: `trigger`
+- security: **DEFINER**
+- language: plpgsql
+
+```plpgsql
+DECLARE _in_stock boolean;
+BEGIN
+  IF NEW.service_supabase_id IS NULL THEN RETURN NEW; END IF;
+  -- Service-role bypass for sync etc.
+  IF current_setting('role', true) IN ('service_role','postgres') THEN RETURN NEW; END IF;
+  -- Manager override marker (set via set_config in elevated flow).
+  IF current_setting('app.in_stock_override', true) = 'true' THEN RETURN NEW; END IF;
+
+  SELECT s.in_stock INTO _in_stock
+  FROM services s WHERE s.supabase_id = NEW.service_supabase_id AND s.business_id = NEW.business_id
+  LIMIT 1;
+
+  IF _in_stock IS FALSE THEN
+    RAISE EXCEPTION 'service_out_of_stock_86_listed' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+```
+
+### `trg_ticket_payment_balance()`
+
+- returns: `trigger`
+- security: **INVOKER**
+- language: plpgsql
+
+```plpgsql
+DECLARE _sum numeric; _expected numeric; _diff numeric;
+BEGIN
+  IF current_setting('role', true) IN ('service_role','postgres') THEN RETURN NEW; END IF;
+  IF NEW.status NOT IN ('paid','cobrado') THEN RETURN NEW; END IF;
+  IF NEW.payment_method IN ('credit','credito') THEN RETURN NEW; END IF;
+  IF NEW.payment_method IN ('pedidos_ya','pedidos-ya','py') THEN RETURN NEW; END IF;
+  IF NEW.payment_parts IS NULL OR jsonb_typeof(NEW.payment_parts) <> 'array' THEN
+    RETURN NEW;
+  END IF;
+  SELECT COALESCE(SUM((p->>'amount')::numeric), 0) INTO _sum
+  FROM jsonb_array_elements(NEW.payment_parts) AS p;
+  _expected := COALESCE(NEW.total, 0) - COALESCE(NEW.descuento, 0);
+  _diff := _sum - _expected;
+  -- Underpay: hard reject (existing behavior).
+  IF _diff < -0.05 THEN
+    RAISE EXCEPTION 'underpaid_sale: sum=% expected=% diff=%',
+      _sum, _expected, _diff USING ERRCODE = '23514';
+  END IF;
+  -- Significant overpay (> RD$1000) flagged but allowed — log via NOTICE so
+  -- a future trigger could write activity_log if needed. Mostly catches buggy
+  -- imports / wrong-total scripts.
+  IF _diff > 1000 THEN
+    RAISE WARNING 'ticket_payment_overpay_drift: ticket=% sum=% expected=% diff=%',
+      NEW.id, _sum, _expected, _diff;
+  END IF;
+  RETURN NEW;
+END;
+```
+
 ### `trg_tickets_rev_guard()`
 
 - returns: `trigger`
@@ -18069,6 +18886,27 @@ BEGIN
       NEW.rev, OLD.rev, OLD.id
       USING ERRCODE = 'check_violation';
   END IF;
+  RETURN NEW;
+END;
+```
+
+### `trg_tickets_stamp_cuadre()`
+
+- returns: `trigger`
+- security: **INVOKER**
+- language: plpgsql
+
+```plpgsql
+DECLARE _cuadre_sid uuid;
+BEGIN
+  IF NEW.cuadre_supabase_id IS NOT NULL THEN RETURN NEW; END IF;
+  -- Status filter removed — every newly-inserted ticket gets stamped when an
+  -- open cuadre exists. Drafts / pendiente / cobrado / nula / open all welcome.
+  SELECT cc.supabase_id INTO _cuadre_sid
+  FROM cuadre_caja cc
+  WHERE cc.business_id = NEW.business_id AND cc.status = 'abierto'
+  ORDER BY cc.updated_at DESC NULLS LAST, cc.id DESC LIMIT 1;
+  IF _cuadre_sid IS NOT NULL THEN NEW.cuadre_supabase_id := _cuadre_sid; END IF;
   RETURN NEW;
 END;
 ```
@@ -18203,7 +19041,7 @@ SELECT event_object_table AS table_name,
   ORDER BY event_object_table, trigger_name;
 ```
 
-Total triggers: **278**
+Total triggers: **294**
 
 | table | trigger | timing | events | action | condition |
 |-------|---------|--------|--------|--------|-----------|
@@ -18213,13 +19051,18 @@ Total triggers: **278**
 | `accounting_billing_plans` | `tg_acc_bp_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_chart_of_accounts` | `tg_acc_coa_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_clients` | `tg_acc_clients_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
+| `accounting_clients` | `trg_accounting_clients_cap_ins` | BEFORE | INSERT | EXECUTE FUNCTION trg_accounting_clients_cap() |  |
 | `accounting_coa_auto_post_rules` | `tg_acc_apr_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
+| `accounting_comprobantes` | `trg_comprobante_period_derive_ins` | BEFORE | INSERT | EXECUTE FUNCTION trg_comprobante_period_derive() |  |
+| `accounting_comprobantes` | `trg_comprobante_period_derive_upd` | BEFORE | UPDATE | EXECUTE FUNCTION trg_comprobante_period_derive() |  |
 | `accounting_csv_mappings` | `tg_acc_csv_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_documents` | `tg_acc_docs_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_fixed_assets` | `tg_acc_fa_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_foreign_payments` | `tg_acc_fp_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_inbox` | `tg_acc_inbox_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_journal_entries` | `tg_acc_je_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
+| `accounting_journal_entries` | `trg_je_balance_check_ins` | BEFORE | INSERT | EXECUTE FUNCTION trg_je_balance_check() |  |
+| `accounting_journal_entries` | `trg_je_balance_check_upd` | BEFORE | UPDATE | EXECUTE FUNCTION trg_je_balance_check() |  |
 | `accounting_journal_lines` | `tg_acc_jl_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_obligations_calendar` | `tg_acc_obl_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `accounting_payroll_employee_bank` | `tg_acc_pl_emp_bank_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
@@ -18311,7 +19154,7 @@ Total triggers: **278**
 | `appointments` | `trg_appointments_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `aseguradoras` | `aseguradoras_set_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_aseguradoras_set_updated_at() |  |
 | `bank_preapprovals` | `bank_preapprovals_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
-| `businesses` | `businesses_sync_owner_metadata` | AFTER | INSERT,UPDATE | EXECUTE FUNCTION tg_business_sync_owner_metadata() |  |
+| `businesses` | `businesses_sync_owner_metadata` | AFTER | UPDATE,INSERT | EXECUTE FUNCTION tg_business_sync_owner_metadata() |  |
 | `businesses` | `trg_businesses_updated` | BEFORE | UPDATE | EXECUTE FUNCTION update_updated_at() |  |
 | `caja_chica` | `trg_caja_chica_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `caja_chica` | `trg_caja_chica_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
@@ -18353,6 +19196,8 @@ Total triggers: **278**
 | `ecf_queue` | `trg_ecf_queue_touch` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `ecf_submissions` | `trg_ecf_submissions_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `ecf_submissions` | `trg_ecf_submissions_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
+| `empleados` | `trg_empleados_change_audit` | AFTER | UPDATE | EXECUTE FUNCTION trg_empleados_change_audit() |  |
+| `empleados` | `trg_empleados_role_guard_on_update` | BEFORE | UPDATE | EXECUTE FUNCTION trg_empleados_role_guard() |  |
 | `empleados` | `trg_empleados_role_to_staff` | AFTER | UPDATE | EXECUTE FUNCTION sync_role_empleados_to_staff() |  |
 | `empleados` | `trg_empleados_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `empleados` | `trg_empleados_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
@@ -18367,6 +19212,7 @@ Total triggers: **278**
 | `inventory_freshness_log` | `trg_inventory_freshness_log_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `inventory_items` | `trg_inventory_items_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `inventory_items` | `trg_inventory_items_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
+| `inventory_items` | `trg_inventory_price_audit` | AFTER | UPDATE | EXECUTE FUNCTION trg_inventory_price_audit() |  |
 | `inventory_items` | `trg_inventory_updated` | BEFORE | UPDATE | EXECUTE FUNCTION update_updated_at() |  |
 | `inventory_oversells` | `trg_inventory_oversells_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `inventory_oversells` | `trg_oversells_upd` | BEFORE | UPDATE | EXECUTE FUNCTION update_updated_at() |  |
@@ -18390,7 +19236,7 @@ Total triggers: **278**
 | `loyalty_transactions` | `trg_lt_updated` | BEFORE | UPDATE | EXECUTE FUNCTION tg_set_updated_at() |  |
 | `marketing_leads` | `trg_marketing_leads_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
 | `mechanic_commissions` | `mechanic_commissions_set_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_mechanic_commissions_set_updated_at() |  |
-| `mechanic_commissions` | `trg_mechanic_comm_employment_window` | BEFORE | UPDATE,INSERT | EXECUTE FUNCTION guard_commission_employment_window() |  |
+| `mechanic_commissions` | `trg_mechanic_comm_employment_window` | BEFORE | INSERT,UPDATE | EXECUTE FUNCTION guard_commission_employment_window() |  |
 | `membership_redemptions` | `trg_membership_redemptions_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `memberships` | `memberships_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
 | `memberships` | `trg_memberships_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
@@ -18430,7 +19276,7 @@ Total triggers: **278**
 | `salary_changes` | `trg_salary_changes_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `salary_changes` | `trg_salary_changes_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION set_updated_at() |  |
 | `sales_deals` | `trg_sales_deals_updated` | BEFORE | UPDATE | EXECUTE FUNCTION touch_updated_at() |  |
-| `seller_commissions` | `trg_seller_comm_employment_window` | BEFORE | UPDATE,INSERT | EXECUTE FUNCTION guard_commission_employment_window() |  |
+| `seller_commissions` | `trg_seller_comm_employment_window` | BEFORE | INSERT,UPDATE | EXECUTE FUNCTION guard_commission_employment_window() |  |
 | `seller_commissions` | `trg_seller_commissions_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `seller_commissions` | `trg_seller_commissions_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `seller_commissions` | `trg_seller_commissions_updated_at_insert` | BEFORE | INSERT | EXECUTE FUNCTION trg_set_updated_at_insert() |  |
@@ -18444,7 +19290,12 @@ Total triggers: **278**
 | `services` | `trg_services_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `services` | `trg_services_updated` | BEFORE | UPDATE | EXECUTE FUNCTION update_updated_at() |  |
 | `services` | `trg_services_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
-| `staff` | `staff_sync_user_metadata` | AFTER | UPDATE,INSERT | EXECUTE FUNCTION tg_staff_sync_user_metadata() |  |
+| `staff` | `staff_sync_user_metadata` | AFTER | INSERT,UPDATE | EXECUTE FUNCTION tg_staff_sync_user_metadata() |  |
+| `staff` | `trg_staff_change_audit` | AFTER | UPDATE | EXECUTE FUNCTION trg_staff_change_audit() |  |
+| `staff` | `trg_staff_last_owner_deactivate_guard` | BEFORE | UPDATE | EXECUTE FUNCTION trg_staff_last_owner_deactivate_guard() |  |
+| `staff` | `trg_staff_last_owner_guard` | BEFORE | UPDATE | EXECUTE FUNCTION trg_staff_last_owner_guard() |  |
+| `staff` | `trg_staff_pin_guard_on_update` | BEFORE | UPDATE | EXECUTE FUNCTION trg_staff_pin_guard() |  |
+| `staff` | `trg_staff_role_guard_on_update` | BEFORE | UPDATE | EXECUTE FUNCTION trg_staff_role_guard() |  |
 | `staff` | `trg_staff_role_to_empleados` | AFTER | UPDATE | EXECUTE FUNCTION sync_role_staff_to_empleados() |  |
 | `staff` | `trg_staff_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `staff` | `trg_staff_updated` | BEFORE | UPDATE | EXECUTE FUNCTION update_updated_at() |  |
@@ -18457,12 +19308,15 @@ Total triggers: **278**
 | `ticket_item_modificadores` | `trg_ticket_item_modificadores_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `ticket_item_modificadores` | `trg_ticket_item_modificadores_updated_at_insert` | BEFORE | INSERT | EXECUTE FUNCTION trg_set_updated_at_insert() |  |
 | `ticket_items` | `trg_ticket_items_decrement_inventory` | AFTER | INSERT | EXECUTE FUNCTION trg_ticket_item_decrement_inventory() |  |
+| `ticket_items` | `trg_ticket_items_in_stock_guard` | BEFORE | INSERT | EXECUTE FUNCTION trg_ticket_items_in_stock_guard() |  |
 | `ticket_items` | `trg_ticket_items_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `ticket_items` | `trg_ticket_items_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `ticket_items` | `trg_ticket_items_updated_at_insert` | BEFORE | INSERT | EXECUTE FUNCTION trg_set_updated_at_insert() |  |
+| `tickets` | `trg_ticket_payment_balance` | BEFORE | UPDATE,INSERT | EXECUTE FUNCTION trg_ticket_payment_balance() |  |
 | `tickets` | `trg_tickets_complete_appointment` | AFTER | INSERT,UPDATE | EXECUTE FUNCTION trg_ticket_complete_appointment() |  |
 | `tickets` | `trg_tickets_credit_balance` | AFTER | INSERT | EXECUTE FUNCTION trg_credit_ticket_bump_balance() |  |
 | `tickets` | `trg_tickets_rev_guard` | BEFORE | UPDATE | EXECUTE FUNCTION trg_tickets_rev_guard() |  |
+| `tickets` | `trg_tickets_stamp_cuadre` | BEFORE | INSERT | EXECUTE FUNCTION trg_tickets_stamp_cuadre() |  |
 | `tickets` | `trg_tickets_touch_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_touch_updated_at() |  |
 | `tickets` | `trg_tickets_updated_at` | BEFORE | UPDATE | EXECUTE FUNCTION trg_set_updated_at() |  |
 | `tickets` | `trg_tickets_updated_at_insert` | BEFORE | INSERT | EXECUTE FUNCTION trg_set_updated_at_insert() |  |
@@ -18580,13 +19434,13 @@ These have all bitten Terminal X in production. Future readers — check this li
 
 ## Snapshot Stats
 
-- Tables: **153** (RLS-enabled: 153)
-- Columns: **3046**
-- Constraints: **758** (PK: 185, UNIQUE: 283, FK: 159, CHECK: 129)
-- Indexes: **963** (partial: 137)
-- Policies: **415** (`app_metadata`: 265, `user_metadata`: 0)
-- Functions: **247**
-- Triggers: **278**
+- Tables: **159** (RLS-enabled: 159)
+- Columns: **3110**
+- Constraints: **779** (PK: 191, UNIQUE: 281, FK: 164, CHECK: 141)
+- Indexes: **978** (partial: 144)
+- Policies: **421** (`app_metadata`: 265, `user_metadata`: 0)
+- Functions: **262**
+- Triggers: **294**
 - Realtime members: **25**
 
 ## Changelog
@@ -18595,4 +19449,4 @@ When re-running this script, append a brief entry below describing the diff. Use
 
 | date | who | summary |
 |------|-----|---------|
-| 2026-05-17 | dataLEAKS | initial snapshot |
+| 2026-05-19 | dataLEAKS | initial snapshot |
