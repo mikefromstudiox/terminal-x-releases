@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-19T06:37:45.196Z
+- **Snapshot taken:** 2026-05-19T06:42:48.874Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1730,6 +1730,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 - `aseguradoras_business_supabase_uk` — UNIQUE (business_id, supabase_id)
 - `aseguradoras_supabase_id_key` — UNIQUE (supabase_id)
+- `uq_aseguradoras_biz_rnc` — UNIQUE (business_id, rnc)
 
 **Foreign Keys**
 
@@ -1749,6 +1750,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX aseguradoras_pkey ON public.aseguradoras USING btree (id)`
 - `aseguradoras_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX aseguradoras_supabase_id_key ON public.aseguradoras USING btree (supabase_id)`
+- `uq_aseguradoras_biz_rnc` (btree)
+  `CREATE UNIQUE INDEX uq_aseguradoras_biz_rnc ON public.aseguradoras USING btree (business_id, rnc)`
 - `uq_aseguradoras_rnc` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_aseguradoras_rnc ON public.aseguradoras USING btree (business_id, rnc) WHERE ((rnc IS NOT NULL) AND (rnc <> ''::text))`
 
@@ -2127,6 +2130,7 @@ Total tables: **159** (RLS enabled: **159**)
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
 - `categorias_servicio_supabase_id_uniq` — UNIQUE (supabase_id)
+- `uq_categorias_servicio_biz_nom` — UNIQUE (business_id, nombre)
 - `uq_categorias_servicio_biz_sid` — UNIQUE (business_id, supabase_id)
 - `uq_categorias_servicio_sid` — UNIQUE (business_id, supabase_id)
 
@@ -2146,6 +2150,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX uq_categorias_natural ON public.categorias_servicio USING btree (business_id, nombre)`
 - `uq_categorias_servicio_biz_name_lower` (btree)
   `CREATE UNIQUE INDEX uq_categorias_servicio_biz_name_lower ON public.categorias_servicio USING btree (business_id, lower(nombre))`
+- `uq_categorias_servicio_biz_nom` (btree)
+  `CREATE UNIQUE INDEX uq_categorias_servicio_biz_nom ON public.categorias_servicio USING btree (business_id, nombre)`
 - `uq_categorias_servicio_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_categorias_servicio_biz_sid ON public.categorias_servicio USING btree (business_id, supabase_id)`
 - `uq_categorias_servicio_nombre` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -3716,6 +3722,7 @@ Total tables: **159** (RLS enabled: **159**)
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
 - `empleados_supabase_id_uniq` — UNIQUE (supabase_id)
+- `uq_empleados_biz_cedula` — UNIQUE (business_id, cedula)
 - `uq_empleados_biz_sid` — UNIQUE (business_id, supabase_id)
 - `uq_empleados_sid` — UNIQUE (business_id, supabase_id)
 
@@ -3729,6 +3736,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX empleados_pkey ON public.empleados USING btree (id)`
 - `empleados_supabase_id_uniq` (btree)
   `CREATE UNIQUE INDEX empleados_supabase_id_uniq ON public.empleados USING btree (supabase_id)`
+- `uq_empleados_biz_cedula` (btree)
+  `CREATE UNIQUE INDEX uq_empleados_biz_cedula ON public.empleados USING btree (business_id, cedula)`
 - `uq_empleados_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_empleados_biz_sid ON public.empleados USING btree (business_id, supabase_id)`
 - `uq_empleados_cedula` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -4172,6 +4181,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 - `inventory_items_supabase_id_uniq` — UNIQUE (supabase_id)
 - `uq_inventory_items_biz_sid` — UNIQUE (business_id, supabase_id)
+- `uq_inventory_items_biz_sku` — UNIQUE (business_id, sku)
 
 **Foreign Keys**
 
@@ -4197,6 +4207,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX inventory_items_supabase_id_uniq ON public.inventory_items USING btree (supabase_id)`
 - `uq_inventory_items_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_inventory_items_biz_sid ON public.inventory_items USING btree (business_id, supabase_id)`
+- `uq_inventory_items_biz_sku` (btree)
+  `CREATE UNIQUE INDEX uq_inventory_items_biz_sku ON public.inventory_items USING btree (business_id, sku)`
 - `uq_inventory_items_sku` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_inventory_items_sku ON public.inventory_items USING btree (business_id, sku) WHERE ((sku IS NOT NULL) AND (sku <> ''::text))`
 - `uq_inventory_local2` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -5230,6 +5242,7 @@ Total tables: **159** (RLS enabled: **159**)
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
 - `mesas_supabase_id_key` — UNIQUE (supabase_id)
+- `uq_mesas_biz_name` — UNIQUE (business_id, name)
 - `uq_mesas_biz_sid` — UNIQUE (business_id, supabase_id)
 
 **Foreign Keys**
@@ -5242,6 +5255,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX mesas_pkey ON public.mesas USING btree (id)`
 - `mesas_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX mesas_supabase_id_key ON public.mesas USING btree (supabase_id)`
+- `uq_mesas_biz_name` (btree)
+  `CREATE UNIQUE INDEX uq_mesas_biz_name ON public.mesas USING btree (business_id, name)`
 - `uq_mesas_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_mesas_biz_sid ON public.mesas USING btree (business_id, supabase_id)`
 - `uq_mesas_name` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -5329,6 +5344,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 - `modifier_groups_biz_sb_uq` — UNIQUE (business_id, supabase_id)
 - `modifier_groups_supabase_id_key` — UNIQUE (supabase_id)
+- `uq_modifier_groups_biz_name` — UNIQUE (business_id, name)
 
 **Foreign Keys**
 
@@ -5344,6 +5360,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX modifier_groups_pkey ON public.modifier_groups USING btree (id)`
 - `modifier_groups_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX modifier_groups_supabase_id_key ON public.modifier_groups USING btree (supabase_id)`
+- `uq_modifier_groups_biz_name` (btree)
+  `CREATE UNIQUE INDEX uq_modifier_groups_biz_name ON public.modifier_groups USING btree (business_id, name)`
 - `uq_modifier_groups_name` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_modifier_groups_name ON public.modifier_groups USING btree (business_id, name) WHERE ((name IS NOT NULL) AND (name <> ''::text))`
 
@@ -6133,6 +6151,7 @@ Total tables: **159** (RLS enabled: **159**)
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
 - `promotions_supabase_id_key` — UNIQUE (supabase_id)
+- `uq_promotions_biz_name` — UNIQUE (business_id, name)
 
 **Check Constraints**
 
@@ -6150,6 +6169,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX promotions_pkey ON public.promotions USING btree (id)`
 - `promotions_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX promotions_supabase_id_key ON public.promotions USING btree (supabase_id)`
+- `uq_promotions_biz_name` (btree)
+  `CREATE UNIQUE INDEX uq_promotions_biz_name ON public.promotions USING btree (business_id, name)`
 - `uq_promotions_name` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_promotions_name ON public.promotions USING btree (business_id, name) WHERE ((name IS NOT NULL) AND (name <> ''::text))`
 
@@ -6644,6 +6665,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 - `service_bays_business_supabase_uk` — UNIQUE (business_id, supabase_id)
 - `service_bays_supabase_id_uniq` — UNIQUE (supabase_id)
+- `uq_service_bays_biz_name` — UNIQUE (business_id, name)
 - `uq_service_bays_biz_sid` — UNIQUE (business_id, supabase_id)
 
 **Foreign Keys**
@@ -6658,6 +6680,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX service_bays_pkey ON public.service_bays USING btree (id)`
 - `service_bays_supabase_id_uniq` (btree)
   `CREATE UNIQUE INDEX service_bays_supabase_id_uniq ON public.service_bays USING btree (supabase_id)`
+- `uq_service_bays_biz_name` (btree)
+  `CREATE UNIQUE INDEX uq_service_bays_biz_name ON public.service_bays USING btree (business_id, name)`
 - `uq_service_bays_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_service_bays_biz_sid ON public.service_bays USING btree (business_id, supabase_id)`
 - `uq_service_bays_name` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -6918,6 +6942,7 @@ Total tables: **159** (RLS enabled: **159**)
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
 - `services_supabase_id_uniq` — UNIQUE (supabase_id)
+- `uq_services_biz_name` — UNIQUE (business_id, name)
 - `uq_services_biz_sid` — UNIQUE (business_id, supabase_id)
 - `uq_services_sid` — UNIQUE (business_id, supabase_id)
 
@@ -6937,6 +6962,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX services_pkey ON public.services USING btree (id)`
 - `services_supabase_id_uniq` (btree)
   `CREATE UNIQUE INDEX services_supabase_id_uniq ON public.services USING btree (supabase_id)`
+- `uq_services_biz_name` (btree)
+  `CREATE UNIQUE INDEX uq_services_biz_name ON public.services USING btree (business_id, name)`
 - `uq_services_biz_sid` (btree)
   `CREATE UNIQUE INDEX uq_services_biz_sid ON public.services USING btree (business_id, supabase_id)`
 - `uq_services_local` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
@@ -7155,6 +7182,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 - `suppliers_business_supabase_uk` — UNIQUE (business_id, supabase_id)
 - `suppliers_supabase_id_key` — UNIQUE (supabase_id)
+- `uq_suppliers_biz_rnc` — UNIQUE (business_id, rnc)
 
 **Foreign Keys**
 
@@ -7170,6 +7198,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX suppliers_pkey ON public.suppliers USING btree (id)`
 - `suppliers_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX suppliers_supabase_id_key ON public.suppliers USING btree (supabase_id)`
+- `uq_suppliers_biz_rnc` (btree)
+  `CREATE UNIQUE INDEX uq_suppliers_biz_rnc ON public.suppliers USING btree (business_id, rnc)`
 - `uq_suppliers_rnc` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_suppliers_rnc ON public.suppliers USING btree (business_id, rnc) WHERE ((rnc IS NOT NULL) AND (rnc <> ''::text))`
 
@@ -7676,6 +7706,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
+- `uq_vehicle_inventory_biz_vin` — UNIQUE (business_id, vin)
 - `vehicle_inventory_biz_sid_key` — UNIQUE (business_id, supabase_id)
 - `vehicle_inventory_supabase_id_key` — UNIQUE (supabase_id)
 
@@ -7691,6 +7722,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE INDEX idx_vehinv_stock ON public.vehicle_inventory USING btree (business_id, stock_number)`
 - `idx_vehinv_vin` (btree)
   `CREATE INDEX idx_vehinv_vin ON public.vehicle_inventory USING btree (business_id, vin)`
+- `uq_vehicle_inventory_biz_vin` (btree)
+  `CREATE UNIQUE INDEX uq_vehicle_inventory_biz_vin ON public.vehicle_inventory USING btree (business_id, vin)`
 - `uq_vehicle_inventory_vin` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
   `CREATE UNIQUE INDEX uq_vehicle_inventory_vin ON public.vehicle_inventory USING btree (business_id, vin) WHERE ((vin IS NOT NULL) AND (vin <> ''::text))`
 - `vehicle_inventory_biz_sid_key` (btree)
@@ -19436,8 +19469,8 @@ These have all bitten Terminal X in production. Future readers — check this li
 
 - Tables: **159** (RLS-enabled: 159)
 - Columns: **3110**
-- Constraints: **779** (PK: 191, UNIQUE: 281, FK: 164, CHECK: 141)
-- Indexes: **978** (partial: 144)
+- Constraints: **790** (PK: 191, UNIQUE: 292, FK: 164, CHECK: 141)
+- Indexes: **989** (partial: 144)
 - Policies: **421** (`app_metadata`: 265, `user_metadata`: 0)
 - Functions: **262**
 - Triggers: **294**

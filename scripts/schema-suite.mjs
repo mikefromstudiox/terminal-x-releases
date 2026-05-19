@@ -95,12 +95,22 @@ const DUPE_CANDIDATES = [
   { table: 'empleados',          cols: ['business_id','cedula'] },
   { table: 'inventory_items',    cols: ['business_id','sku'] },
   { table: 'promotions',         cols: ['business_id','name'] },
-  { table: 'modificadores',      cols: ['business_id','nombre'] },
+  // 2026-05-19 — 5 tables below DEFERRED from this audit until a product
+  // decision is made on the natural-key shape:
+  //   modificadores: real col is `name` not `nombre`, BUT same name may
+  //     legitimately repeat across modifier_groups → natural key likely
+  //     (business_id, modifier_group_supabase_id, name).
+  //   service_packages: real col is `package_name`; per-client purchase →
+  //     natural key likely (business_id, client_supabase_id, package_name).
+  //   wash_combos: real col is `combo_name`; same per-client purchase shape.
+  //   memberships: real col is `plan_name` (or `nombre` for templates);
+  //     active-period scoping makes a global UNIQUE wrong.
+  //   recurring_orders: real col is `nombre` (not `name`).
+  // Until those decisions land, removing from this list rather than asserting
+  // a constraint shape we know is wrong. Track in TESTING.md findings backlog.
   { table: 'ncf_sequences',      cols: ['business_id','type'] },
   { table: 'categorias_servicio',cols: ['business_id','nombre'] },
   { table: 'vehicle_inventory',  cols: ['business_id','vin'] },
-  { table: 'service_packages',   cols: ['business_id','name'] },
-  { table: 'wash_combos',        cols: ['business_id','name'] },
   { table: 'staff',              cols: ['business_id','auth_user_id'] },
   { table: 'payroll_settings',   cols: ['business_id'] },
   { table: 'app_settings',       cols: ['business_id','key'] },
@@ -109,9 +119,7 @@ const DUPE_CANDIDATES = [
   { table: 'suppliers',          cols: ['business_id','rnc'] },
   { table: 'service_bays',       cols: ['business_id','name'] },
   { table: 'modifier_groups',    cols: ['business_id','name'] },
-  { table: 'memberships',        cols: ['business_id','name'] },
   { table: 'stylist_schedules',  cols: ['business_id','empleado_supabase_id','day_of_week'] },
-  { table: 'recurring_orders',   cols: ['business_id','client_supabase_id','name'] },
   { table: 'service_recipe_items', cols: ['business_id','service_supabase_id','inventory_item_supabase_id'] },
   { table: 'salary_changes',     cols: ['business_id','empleado_supabase_id','effective_date'] },
 ]
