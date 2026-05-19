@@ -294,15 +294,8 @@ const ALL_CARDS = [
     feature: 'loyalty',
     roles: ['owner'],
   },
-  {
-    id: 'recibo',
-    icon: ReceiptText,
-    title: { es: 'Recibo (Diseño y Footer)', en: 'Receipt (Design & Footer)' },
-    desc:  { es: 'Qué se imprime en el ticket y el mensaje al pie.',
-             en: 'What prints on the ticket and the footer message.' },
-    to: '/config/recibo',
-    roles: ['owner'],
-  },
+  // 2026-05-19 — Recibo card removed; receipt customization stays inside
+  // Impresora y Caja so owners find it where they expect.
   {
     id: 'restaurant',
     icon: UtensilsCrossed,
