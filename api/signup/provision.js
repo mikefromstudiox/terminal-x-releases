@@ -59,6 +59,25 @@ async function handler(req, res) {
       username: 'owner', role: 'owner', active: true,
     })
 
+    // 2026-05-19 — empleados.role='owner' MUST exist alongside the staff row.
+    // CLAUDE.md memory feedback_role_lives_in_empleados_not_staff: the UI reads
+    // empleados.role for access control. staff.role alone won't unlock owner-only
+    // screens (e-CF config, plan settings, security gates, license info). The
+    // 2026-05-19 security-suite found 7 real/staging businesses with staff.role
+    // but no empleados.role row — Perla + CAR WASH DJ included — which means
+    // those owners would have hit silently-limited UI before backfill.
+    //
+    // empleados.tipo is payroll axis (independent from role); 'hybrid' covers
+    // owners who do multiple things. start_date = today. salary defaults to 0.
+    await supabase.from('empleados').insert({
+      business_id: biz.id,
+      nombre: business_name.trim(),
+      tipo: 'hybrid',
+      start_date: new Date().toISOString().slice(0, 10),
+      active: true,
+      role: 'owner',
+    })
+
     const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
     const seg = () => Array.from({ length: 4 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
     const licenseKey = 'TXL-' + seg() + '-' + seg() + '-' + seg()
