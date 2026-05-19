@@ -38,6 +38,12 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
   const [rebinds, setRebinds] = useState([])
   const [rebindBusy, setRebindBusy] = useState({})
 
+  // 2026-05-19 — Group licenses by business so multi-terminal clients
+  // (Ranoza has 4 PCs, Studio X SRL has 2, etc.) collapse to ONE summary row
+  // per business with a click-to-expand dropdown for individual terminals.
+  // Solo-license businesses render expanded by default (no useless toggle).
+  const [expandedBiz, setExpandedBiz] = useState(() => new Set())
+
   useEffect(() => { load(); loadRebinds() }, [])
 
   async function loadRebinds() {
@@ -167,6 +173,38 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
   })
 
   const demoCount = list.filter(isDemoLicense).length
+
+  // 2026-05-19 — Build groups: { businessId → { biz, licenses[] } }.
+  // Iteration preserves filtered order so the FIRST license of each business
+  // determines that business's slot in the list. Within a group, sort by
+  // platform then last_seen DESC to surface the most-recently-active terminal
+  // up top for the collapsed summary.
+  const groups = (() => {
+    const map = new Map()
+    for (const l of filtered) {
+      const bid = l.business_id || l.businesses?.id || `__no_biz_${l.id}`
+      if (!map.has(bid)) {
+        map.set(bid, { bid, biz: l.businesses || null, licenses: [] })
+      }
+      map.get(bid).licenses.push(l)
+    }
+    for (const g of map.values()) {
+      g.licenses.sort((a, b) => {
+        if (a.platform !== b.platform) return (a.platform || '').localeCompare(b.platform || '')
+        const ts = (l) => l.last_seen ? new Date(l.last_seen).getTime() : 0
+        return ts(b) - ts(a)
+      })
+    }
+    return Array.from(map.values())
+  })()
+
+  function toggleGroup(bid) {
+    setExpandedBiz(prev => {
+      const n = new Set(prev)
+      if (n.has(bid)) n.delete(bid); else n.add(bid)
+      return n
+    })
+  }
 
   const STATUS_BADGE = isDark ? STATUS_BADGE_DARK : STATUS_BADGE_LIGHT
   const tableBase = isDark ? 'bg-white/[0.03] border border-white/10' : 'bg-white border border-black/10 shadow-sm'
@@ -355,11 +393,37 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
             </div>
           ) : (
             <motion.div variants={listContainer} initial="initial" animate="animate">
-              {filtered.map(l => (
+              {groups.map(g => {
+                const multi = g.licenses.length > 1
+                const open = !multi || expandedBiz.has(g.bid)
+                const activeCount = g.licenses.filter(l => l.status === 'active').length
+                return (
+                  <div key={g.bid}>
+                    {multi && (
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(g.bid)}
+                        className={`w-full flex items-center gap-3 px-5 py-3 border-b transition-colors text-left ${
+                          isDark ? 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04]' : 'border-black/10 bg-black/[0.02] hover:bg-black/[0.04]'
+                        }`}
+                      >
+                        <span className={`text-[12px] transition-transform ${open ? 'rotate-90' : ''} ${isDark ? 'text-white/40' : 'text-black/40'}`}>▶</span>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[13px] font-bold truncate ${isDark ? 'text-white' : 'text-black'}`}>{g.biz?.name || '—'}</p>
+                          <p className={`text-[11px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                            {g.biz?.rnc || '—'} · {L(`${g.licenses.length} licencias`, `${g.licenses.length} licenses`)} · {activeCount} {L('activas', 'active')}
+                          </p>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${isDark ? 'border-white/20 text-white/60' : 'border-black/15 text-black/60'}`}>
+                          {g.licenses.length}
+                        </span>
+                      </button>
+                    )}
+                    {open && g.licenses.map(l => (
                 <motion.div
                   key={l.id}
                   variants={listItem}
-                  className={`border-b last:border-0 transition-colors ${
+                  className={`border-b last:border-0 transition-colors ${multi ? (isDark ? 'pl-4 bg-white/[0.01]' : 'pl-4 bg-black/[0.01]') : ''} ${
                     isDark ? 'border-white/5 hover:bg-white/[0.04]' : 'border-black/5 hover:bg-[#b3001e]/[0.03]'
                   }`}
                 >
@@ -485,7 +549,10 @@ export default function Licenses({ getToken, refreshToken, isDark, lang }) {
                     </div>
                   </div>
                 </motion.div>
-              ))}
+                    ))}
+                  </div>
+                )
+              })}
             </motion.div>
           )}
         </div>
