@@ -6,8 +6,7 @@
 // as part of the config-sections consolidation. Reset DB eliminates the
 // manual %APPDATA% delete dance for support + first-install recovery.
 import { useState } from 'react'
-import { Shield, ArrowUpRight, RotateCcw, AlertTriangle } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Shield, RotateCcw, AlertTriangle } from 'lucide-react'
 import { useSettings, SettingSection, SettingRow, SaveBtn, Toast, Toggle, Input } from '../Sistema'
 import { useLang } from '../../i18n'
 import { useAuth } from '../../context/AuthContext'
@@ -16,7 +15,6 @@ export default function ConfigSecurity() {
   const { cfg, set, on, handleSave, saving, saved, toast, show } = useSettings()
   const { lang } = useLang()
   const { user } = useAuth()
-  const navigate = useNavigate()
   const L = (es, en) => lang === 'es' ? es : en
   const isOwner = user?.role === 'owner'
 
@@ -133,20 +131,9 @@ export default function ConfigSecurity() {
           )}
         </SettingSection>
 
-        <button
-          type="button" onClick={() => navigate('/config/usuarios')}
-          className="mt-4 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] p-4 text-left hover:border-[#b3001e] transition-colors group"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[13px] font-bold text-slate-900 dark:text-white">{L('Administrar usuarios y PINs', 'Manage users and PINs')}</p>
-              <p className="text-[11px] text-slate-500 dark:text-white/50 mt-0.5">
-                {L('Crea/edita cuentas · resetea PINs · roles.', 'Create/edit accounts · reset PINs · roles.')}
-              </p>
-            </div>
-            <ArrowUpRight size={16} className="text-slate-400 group-hover:text-[#b3001e]" />
-          </div>
-        </button>
+        {/* 2026-05-19 — "Administrar usuarios y PINs" deep-link removed.
+            Real user CRUD + PIN reset lives in /config/usuarios (Users card)
+            so owners go there directly instead of bouncing through Security. */}
 
         {/* 2026-05-19 — Reset Local DB recovery action. Owner-only.
             Wipes %APPDATA%\Terminal X folder contents + relaunches app so
