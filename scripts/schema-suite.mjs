@@ -95,19 +95,40 @@ const DUPE_CANDIDATES = [
   { table: 'empleados',          cols: ['business_id','cedula'] },
   { table: 'inventory_items',    cols: ['business_id','sku'] },
   { table: 'promotions',         cols: ['business_id','name'] },
-  // 2026-05-19 — 5 tables below DEFERRED from this audit until a product
-  // decision is made on the natural-key shape:
-  //   modificadores: real col is `name` not `nombre`, BUT same name may
-  //     legitimately repeat across modifier_groups → natural key likely
-  //     (business_id, modifier_group_supabase_id, name).
-  //   service_packages: real col is `package_name`; per-client purchase →
-  //     natural key likely (business_id, client_supabase_id, package_name).
-  //   wash_combos: real col is `combo_name`; same per-client purchase shape.
-  //   memberships: real col is `plan_name` (or `nombre` for templates);
-  //     active-period scoping makes a global UNIQUE wrong.
-  //   recurring_orders: real col is `nombre` (not `name`).
-  // Until those decisions land, removing from this list rather than asserting
-  // a constraint shape we know is wrong. Track in TESTING.md findings backlog.
+  // 2026-05-19 — resolved decisions for the 5 deferred tables
+  // (migration `2026_05_19_deferred_unique_constraints.sql`):
+  //   modificadores → COVERED by uq_modificadores_natural unique INDEX on
+  //     (business_id, name, group_name). group_name is the legacy text col,
+  //     equivalent in practice to modifier_group_supabase_id (every row has
+  //     both, modifiers don't migrate between groups). Live data confirms 0
+  //     dupes on EITHER shape — no second redundant index added.
+  //   service_packages → SKIPPED. Per-client purchase record. Repeat
+  //     purchases of the same package_name by the same client are legal.
+  //     No natural key beyond (business_id, supabase_id).
+  //   wash_combos → SKIPPED. Same per-purchase shape as service_packages.
+  //   memberships → TWO partial unique indexes:
+  //     uq_memberships_template_natural ON (business_id, plan_name)
+  //       WHERE active_template = true AND client_supabase_id IS NULL
+  //     uq_memberships_active_client_plan ON
+  //       (business_id, client_supabase_id, plan_name)
+  //       WHERE status='active' AND client_supabase_id IS NOT NULL
+  //   recurring_orders → uq_recurring_orders_biz_client_nombre UNIQUE
+  //     (business_id, client_supabase_id, nombre). All NOT NULL, no partial.
+  //
+  // `where` (optional) — partial-index predicate. When present the dupes
+  // sweep gets the same WHERE clause and the constraints scenario also
+  // accepts a unique INDEX (with matching WHERE) rather than requiring a
+  // full UNIQUE CONSTRAINT (which can't be partial in Postgres).
+  { table: 'modificadores',      cols: ['business_id','name','group_name'] },
+  { table: 'recurring_orders',   cols: ['business_id','client_supabase_id','nombre'] },
+  { table: 'memberships',        cols: ['business_id','plan_name'],
+    where: 'active_template = true AND client_supabase_id IS NULL',
+    label: 'template' },
+  { table: 'memberships',        cols: ['business_id','client_supabase_id','plan_name'],
+    where: "status = 'active' AND client_supabase_id IS NOT NULL",
+    label: 'active_client' },
+  // service_packages + wash_combos intentionally absent — per-purchase
+  // tables with no natural-key dedup expected. See migration for reasoning.
   { table: 'ncf_sequences',      cols: ['business_id','type'] },
   { table: 'categorias_servicio',cols: ['business_id','nombre'] },
   { table: 'vehicle_inventory',  cols: ['business_id','vin'] },
@@ -306,21 +327,45 @@ for (const t of SYNCED_TABLES) {
   })
 }
 
-// ─── schema.constraints.* — every dupe-candidate has a UNIQUE constraint ────
+// ─── schema.constraints.* — every dupe-candidate has UNIQUE coverage ────────
+// Dual-coverage pattern (mirrors stress-suite commit 4cd3a44): accept EITHER
+// a UNIQUE constraint (pg_constraint) OR a UNIQUE INDEX (pg_indexes), since
+// partial unique indexes (Postgres can't represent these as constraints) are
+// equally enforcing at INSERT.
 for (const c of DUPE_CANDIDATES) {
-  h.scenario(`schema.constraints.${c.table}.unique_${c.cols.slice(-1)[0]}`, async (ctx) => {
+  const suffix = c.label || c.cols.slice(-1)[0]
+  h.scenario(`schema.constraints.${c.table}.unique_${suffix}`, async (ctx) => {
     const tbls = getPublicTables()
     if (!tbls.some(r => r.table_name === c.table)) return ctx.skip(`table ${c.table} missing`)
-    const uniques = getUniques()
-    const hits = uniques.filter(u => u.table_name === c.table)
-    const covered = hits.some(u => c.cols.every(col => new RegExp(`\\b${col}\\b`).test(u.def)))
-    ctx.assert(covered, `${c.table} lacks UNIQUE on (${c.cols.join(',')}) — verify: SELECT conname,pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.${c.table}'::regclass AND contype='u'`)
+    const matchCols = (def) => c.cols.every(col => new RegExp(`\\b${col}\\b`).test(def))
+    // Partial-index case: also require the WHERE predicate to appear in indexdef.
+    // Postgres re-prints indexdef with normalized parens/casing/operator order
+    // (e.g. `((active_template = true) AND (client_supabase_id IS NULL))`), so
+    // we tokenize the candidate WHERE on AND/OR and check each fragment as a
+    // substring after collapsing whitespace + lowercasing.
+    const matchWhere = (def) => {
+      if (!c.where) return true
+      const norm = (s) => String(s).toLowerCase().replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()
+      const haystack = norm(def)
+      const fragments = String(c.where).split(/\s+and\s+|\s+or\s+/i).map(norm).filter(Boolean)
+      return fragments.every(f => haystack.includes(f))
+    }
+    const uniqueConstraints = getUniques()
+      .filter(u => u.table_name === c.table)
+      .filter(u => matchCols(u.def))
+    const uniqueIndexes = getIndexes()
+      .filter(i => i.tablename === c.table && /unique/i.test(i.indexdef))
+      .filter(i => matchCols(i.indexdef) && matchWhere(i.indexdef))
+    // Partial indexes can't be expressed as constraints — only count indexes for those.
+    const covered = c.where ? uniqueIndexes.length > 0 : (uniqueConstraints.length + uniqueIndexes.length) > 0
+    ctx.assert(covered, `${c.table} lacks UNIQUE on (${c.cols.join(',')})${c.where ? ` WHERE ${c.where}` : ''} — verify: SELECT conname,pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.${c.table}'::regclass AND contype='u'; SELECT indexname,indexdef FROM pg_indexes WHERE tablename='${c.table}' AND indexdef ILIKE '%UNIQUE%'`)
   })
 }
 
 // ─── schema.dupes.* — natural-key duplicate row sweep ───────────────────────
 for (const c of DUPE_CANDIDATES) {
-  h.scenario(`schema.dupes.${c.table}.${c.cols.slice(-1)[0]}`, async (ctx) => {
+  const suffix = c.label || c.cols.slice(-1)[0]
+  h.scenario(`schema.dupes.${c.table}.${suffix}`, async (ctx) => {
     const tbls = getPublicTables()
     if (!tbls.some(r => r.table_name === c.table)) return ctx.skip(`table ${c.table} missing`)
     // Confirm cols present (from prefetch cache, no extra query).
@@ -335,7 +380,10 @@ for (const c of DUPE_CANDIDATES) {
     const expandedCols = (c.table === 'app_settings' && tableColNames.has('device_hwid'))
       ? [...allCols, `COALESCE(device_hwid, '<global>')`]
       : allCols
-    const where = allCols.map(col => `${col} IS NOT NULL`).join(' AND ')
+    // Compose WHERE: NOT-NULL guard on every key column AND, when the
+    // candidate is partial-index-scoped, the candidate's WHERE predicate.
+    const notNullWhere = allCols.map(col => `${col} IS NOT NULL`).join(' AND ')
+    const where = c.where ? `(${notNullWhere}) AND (${c.where})` : notNullWhere
     const groupBy = expandedCols.join(', ')
     const sql = `SELECT count(*) AS dupe_groups, COALESCE(SUM(cnt-1),0) AS extra FROM (SELECT ${groupBy}, count(*) AS cnt FROM public.${c.table} WHERE ${where} GROUP BY ${groupBy} HAVING count(*)>1) g`
     const r = await ctx.pgQuery(sql)

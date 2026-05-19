@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-19T12:29:44.164Z
+- **Snapshot taken:** 2026-05-19T12:45:45.954Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1509,7 +1509,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **1279**
+- Rough row count (n_live_tup): **1283**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2292,7 +2292,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **23916**
+- Rough row count (n_live_tup): **23924**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2973,7 +2973,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `cron_health_runs`
 
-- Rough row count (n_live_tup): **65**
+- Rough row count (n_live_tup): **66**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3114,7 +3114,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `deploy_smoke_results`
 
-- Rough row count (n_live_tup): **140**
+- Rough row count (n_live_tup): **142**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3148,7 +3148,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `dgii_seed_nonces`
 
-- Rough row count (n_live_tup): **32**
+- Rough row count (n_live_tup): **10**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3809,7 +3809,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `flow_drift_runs`
 
-- Rough row count (n_live_tup): **138**
+- Rough row count (n_live_tup): **140**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3939,7 +3939,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **139**
+- Rough row count (n_live_tup): **142**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4273,7 +4273,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `inventory_transactions`
 
-- Rough row count (n_live_tup): **0**
+- Rough row count (n_live_tup): **1**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5076,7 +5076,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `mega_smoke_runs`
 
-- Rough row count (n_live_tup): **72**
+- Rough row count (n_live_tup): **73**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5214,6 +5214,10 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX memberships_pkey ON public.memberships USING btree (id)`
 - `memberships_supabase_id_uniq` (btree)
   `CREATE UNIQUE INDEX memberships_supabase_id_uniq ON public.memberships USING btree (supabase_id)`
+- `uq_memberships_active_client_plan` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE UNIQUE INDEX uq_memberships_active_client_plan ON public.memberships USING btree (business_id, client_supabase_id, plan_name) WHERE ((status = 'active'::text) AND (client_supabase_id IS NOT NULL))`
+- `uq_memberships_template_natural` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE UNIQUE INDEX uq_memberships_template_natural ON public.memberships USING btree (business_id, plan_name) WHERE ((active_template = true) AND (client_supabase_id IS NULL))`
 
 ### `mesas`
 
@@ -6311,6 +6315,7 @@ Total tables: **159** (RLS enabled: **159**)
 **Unique Constraints** _(usable as PostgREST on_conflict targets — these are real CONSTRAINTs, not partial indexes)_
 
 - `recurring_orders_supabase_id_key` — UNIQUE (supabase_id)
+- `uq_recurring_orders_biz_client_nombre` — UNIQUE (business_id, client_supabase_id, nombre)
 
 **Check Constraints**
 
@@ -6324,6 +6329,8 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE UNIQUE INDEX recurring_orders_pkey ON public.recurring_orders USING btree (id)`
 - `recurring_orders_supabase_id_key` (btree)
   `CREATE UNIQUE INDEX recurring_orders_supabase_id_key ON public.recurring_orders USING btree (supabase_id)`
+- `uq_recurring_orders_biz_client_nombre` (btree)
+  `CREATE UNIQUE INDEX uq_recurring_orders_biz_client_nombre ON public.recurring_orders USING btree (business_id, client_supabase_id, nombre)`
 
 ### `restaurant_reservations`
 
@@ -19502,8 +19509,8 @@ These have all bitten Terminal X in production. Future readers — check this li
 
 - Tables: **159** (RLS-enabled: 159)
 - Columns: **3111**
-- Constraints: **790** (PK: 191, UNIQUE: 292, FK: 164, CHECK: 141)
-- Indexes: **992** (partial: 146)
+- Constraints: **791** (PK: 191, UNIQUE: 293, FK: 164, CHECK: 141)
+- Indexes: **995** (partial: 148)
 - Policies: **421** (`app_metadata`: 265, `user_metadata`: 0)
 - Functions: **263**
 - Triggers: **294**

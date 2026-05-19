@@ -5812,10 +5812,38 @@ export function createWebAPI(supabase, businessId) {
     license: {
       hwid: () => Promise.resolve('web-client'),
       isMaster: () => Promise.resolve(false),
-      // v2.17.13 — ConfigTerminales.jsx calls these but they were undefined,
-      // so the screen always showed "Sin terminales registrados" even when
-      // licenses existed (Ranoza onboarding 2026-05-18 surfaced it). Adding
-      // them so the screen reflects reality from Supabase.
+      // v2.17.14 — ConfigPlan.jsx called `api.license.current()` but it didn't
+      // exist on web OR electron, so the optional-chain (`api.license?.current?.()`)
+      // resolved to `undefined` → license state was always null → "Próximo cobro"
+      // always rendered "—" regardless of actual license.expires_at. Now returns
+      // the most-recently-activated active license for the business. Synthesizes
+      // `trial_end` from activated_at when expires_at is within 8 days of
+      // activation (canonical 7-day trial window) since the `licenses` table has
+      // no real `trial_end` column.
+      current: () => tryOr(async () => {
+        const bid = await resolveBusinessId()
+        if (!bid) return null
+        const { data } = await supabase
+          .from('licenses')
+          .select('id, license_key, label, platform, hardware_id, last_seen, activated_at, expires_at, status, plan_id')
+          .eq('business_id', bid)
+          .eq('status', 'active')
+          .order('activated_at', { ascending: false, nullsFirst: false })
+          .limit(1)
+        const row = (data || [])[0] || null
+        if (!row) return null
+        // Synthesize trial_end: if expires_at is <= 8 days after activated_at,
+        // treat it as a trial expiration date. Otherwise null (paid sub).
+        let trial_end = null
+        if (row.expires_at && row.activated_at) {
+          const exp = new Date(row.expires_at).getTime()
+          const act = new Date(row.activated_at).getTime()
+          if (Number.isFinite(exp) && Number.isFinite(act) && (exp - act) > 0 && (exp - act) <= 8 * 24 * 3600 * 1000) {
+            trial_end = row.expires_at
+          }
+        }
+        return { ...row, trial_end }
+      }, null),
       listForBusiness: () => tryOr(async () => {
         const bid = await resolveBusinessId()
         if (!bid) return []

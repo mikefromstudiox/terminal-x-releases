@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-19T07:12:10.051Z
+- **Snapshot taken:** 2026-05-19T12:29:44.164Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1509,7 +1509,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **1194**
+- Rough row count (n_live_tup): **1279**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1537,7 +1537,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `app_settings`
 
-- Rough row count (n_live_tup): **362**
+- Rough row count (n_live_tup): **363**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1549,7 +1549,7 @@ Total tables: **159** (RLS enabled: **159**)
 | 3 | `key` | text | NO |  |  |
 | 4 | `value` | text | NO | ''::text |  |
 | 5 | `updated_at` | timestamp with time zone | NO | now() |  |
-| 6 | `supabase_id` | uuid | YES |  |  |
+| 6 | `supabase_id` | uuid | NO | gen_random_uuid() |  |
 | 7 | `is_device_local` | boolean | NO | false |  |
 | 8 | `device_hwid` | text | YES |  |  |
 
@@ -1850,7 +1850,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `businesses`
 
-- Rough row count (n_live_tup): **38**
+- Rough row count (n_live_tup): **46**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2292,7 +2292,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **23776**
+- Rough row count (n_live_tup): **23916**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2326,7 +2326,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 **Check Constraints**
 
-- `client_errors_severity_check` — CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'error'::text, 'critical'::text])))
+- `client_errors_severity_check` — CHECK ((severity = ANY (ARRAY['info'::text, 'warn'::text, 'error'::text, 'critical'::text])))
 
 **Indexes**
 
@@ -2973,7 +2973,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `cron_health_runs`
 
-- Rough row count (n_live_tup): **55**
+- Rough row count (n_live_tup): **65**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3114,7 +3114,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `deploy_smoke_results`
 
-- Rough row count (n_live_tup): **119**
+- Rough row count (n_live_tup): **140**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3148,7 +3148,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `dgii_seed_nonces`
 
-- Rough row count (n_live_tup): **38**
+- Rough row count (n_live_tup): **32**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3809,7 +3809,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `flow_drift_runs`
 
-- Rough row count (n_live_tup): **117**
+- Rough row count (n_live_tup): **138**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3939,7 +3939,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `inventory_count_items`
 
-- Rough row count (n_live_tup): **112**
+- Rough row count (n_live_tup): **139**
 - RLS enabled: **YES**
 
 **Columns**
@@ -4510,7 +4510,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `license_events`
 
-- Rough row count (n_live_tup): **2665**
+- Rough row count (n_live_tup): **2666**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5076,7 +5076,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `mega_smoke_runs`
 
-- Rough row count (n_live_tup): **52**
+- Rough row count (n_live_tup): **72**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5373,7 +5373,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `ncf_blocks`
 
-- Rough row count (n_live_tup): **21**
+- Rough row count (n_live_tup): **24**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7357,7 +7357,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `ticket_items`
 
-- Rough row count (n_live_tup): **1057**
+- Rough row count (n_live_tup): **1055**
 - RLS enabled: **YES**
 
 **Columns**
@@ -7556,6 +7556,7 @@ Total tables: **159** (RLS enabled: **159**)
 | 73 | `food_truck_location_supabase_id` | uuid | YES |  |  |
 | 74 | `client_rnc` | text | YES |  |  |
 | 75 | `cuadre_supabase_id` | uuid | YES |  |  |
+| 76 | `age_verified` | boolean | NO | false |  |
 
 **Primary Key**
 
@@ -19500,7 +19501,7 @@ These have all bitten Terminal X in production. Future readers — check this li
 ## Snapshot Stats
 
 - Tables: **159** (RLS-enabled: 159)
-- Columns: **3110**
+- Columns: **3111**
 - Constraints: **790** (PK: 191, UNIQUE: 292, FK: 164, CHECK: 141)
 - Indexes: **992** (partial: 146)
 - Policies: **421** (`app_metadata`: 265, `user_metadata`: 0)
