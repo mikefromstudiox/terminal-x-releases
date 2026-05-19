@@ -423,7 +423,10 @@ for (const [t, requiredCols] of Object.entries(SYNC_PUSH_CONTRACTS)) {
 const FK_PAIR_TABLES = [
   ['ticket_items', 'ticket_supabase_id'],
   ['ticket_items', 'service_supabase_id'],
-  ['credit_payments', 'ticket_supabase_id'],
+  // credit_payments stores ticket linkage as an ARRAY (ticket_ids) not a
+  // singular FK — one payment can settle multiple tickets (partial credit
+  // settlement). Excluded from the dual-key pattern. client_supabase_id
+  // remains the singular FK we DO expect.
   ['credit_payments', 'client_supabase_id'],
   ['washer_commissions', 'ticket_supabase_id'],
   ['seller_commissions', 'ticket_supabase_id'],
