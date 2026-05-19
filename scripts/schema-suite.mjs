@@ -393,16 +393,21 @@ for (const t of SYNCED_TABLES) {
 
 // ─── schema.contracts.* — payload-shape parity for hot tables ──────────────
 // Critical columns sync.js push descriptors expect to exist in Supabase.
+// 2026-05-19 — Real column names confirmed against information_schema.
+//   tickets.doc_number   (was 'ticket_number' — wrong)
+//   ticket_items.quantity (was 'qty'         — wrong)
+//   journal_entries has NO entry_type/amount — it's a double-entry ledger
+//     using account + debit + credit + currency (CLAUDE.md hard rule §20).
 const SYNC_PUSH_CONTRACTS = {
   services: ['name','category','price','cost','aplica_itbis','active','supabase_id','updated_at'],
   clients: ['name','rnc','phone','email','balance','supabase_id','updated_at'],
   inventory_items: ['name','sku','barcode','price','cost','quantity','supabase_id','updated_at'],
-  tickets: ['business_id','ticket_number','total','status','supabase_id','updated_at','rev'],
-  ticket_items: ['ticket_id','ticket_supabase_id','service_id','service_supabase_id','price','qty','itbis','supabase_id','updated_at'],
+  tickets: ['business_id','doc_number','total','status','supabase_id','updated_at','rev'],
+  ticket_items: ['ticket_id','ticket_supabase_id','service_id','service_supabase_id','price','quantity','itbis','supabase_id','updated_at'],
   mesas: ['name','status','rev','supabase_id','updated_at'],
   ncf_sequences: ['type','current_number','active','enabled','supabase_id','updated_at'],
   empleados: ['nombre','cedula','role','active','supabase_id','updated_at'],
-  journal_entries: ['business_id','entry_type','amount','account','created_at'],
+  journal_entries: ['business_id','account','debit','credit','currency','supabase_id','created_at'],
 }
 for (const [t, requiredCols] of Object.entries(SYNC_PUSH_CONTRACTS)) {
   h.scenario(`schema.contracts.${t}`, async (ctx) => {
