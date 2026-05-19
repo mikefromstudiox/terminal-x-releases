@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-19T07:09:29.545Z
+- **Snapshot taken:** 2026-05-19T07:12:10.051Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -4384,6 +4384,8 @@ Total tables: **159** (RLS enabled: **159**)
 
 - `ix_je_biz_account_date` (btree)
   `CREATE INDEX ix_je_biz_account_date ON public.journal_entries USING btree (business_id, account, effective_date DESC)`
+- `ix_je_biz_created` (btree)
+  `CREATE INDEX ix_je_biz_created ON public.journal_entries USING btree (business_id, created_at)`
 - `ix_je_biz_eff_date` (btree)
   `CREATE INDEX ix_je_biz_eff_date ON public.journal_entries USING btree (business_id, effective_date DESC)`
 - `ix_je_biz_source` (btree)
@@ -19500,7 +19502,7 @@ These have all bitten Terminal X in production. Future readers — check this li
 - Tables: **159** (RLS-enabled: 159)
 - Columns: **3110**
 - Constraints: **790** (PK: 191, UNIQUE: 292, FK: 164, CHECK: 141)
-- Indexes: **991** (partial: 146)
+- Indexes: **992** (partial: 146)
 - Policies: **421** (`app_metadata`: 265, `user_metadata`: 0)
 - Functions: **263**
 - Triggers: **294**
