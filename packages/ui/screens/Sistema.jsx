@@ -553,6 +553,21 @@ export function useSettings() {
 
 // ── Preferencias (General settings: language, taxes, POS toggles, printing) ──
 
+// Hash-anchor redirect map for backward-compat with old /sistema#xxx deep-links.
+// Declared BEFORE Preferencias() so there's zero TDZ ambiguity on bundle eval.
+const SISTEMA_HASH_REDIRECTS = {
+  '#manager':     '/config/security',
+  '#printer':     '/config/printer',
+  '#whatsapp':    '/config/whatsapp',
+  '#commissions': '/config/commissions',
+  '#license':     '/config/license',
+  '#loyalty':     '/config/loyalty',
+  '#multi-pos':   '/config/funciones',
+  '#go-live':     '/config/go-live',
+  '#recibo':      '/config/recibo',
+  '#impuestos':   '/config/impuestos',
+}
+
 export function Preferencias() {
   // 2026-05-19 — Stripped as part of the atomic config rework. Every
   // setting that used to live here now has its own card under /config.
@@ -582,20 +597,6 @@ export function Preferencias() {
       </Link>
     </div>
   )
-}
-
-// Hash-anchor redirect map for backward-compat with old /sistema#xxx deep-links.
-const SISTEMA_HASH_REDIRECTS = {
-  '#manager':     '/config/security',
-  '#printer':     '/config/printer',
-  '#whatsapp':    '/config/whatsapp',
-  '#commissions': '/config/commissions',
-  '#license':     '/config/license',
-  '#loyalty':     '/config/loyalty',
-  '#multi-pos':   '/config/funciones',
-  '#go-live':     '/config/go-live',
-  '#recibo':      '/config/recibo',
-  '#impuestos':   '/config/impuestos',
 }
 
 // ── Impresion (Printing settings only) ────────────────────────────────────
