@@ -346,13 +346,28 @@ harness.scenario('security.auth.pin.bcrypt_hash_format', async (ctx) => {
   ctx.assertEq(rows[0]?.n || 0, 0, `${rows[0]?.n} staff rows have non-bcrypt pin_hash — possibly plaintext`)
 }, { category: 'security.auth.pin' })
 
-harness.scenario('security.auth.pin.cuenta_bloqueada_column_exists', async (ctx) => {
+harness.scenario('security.auth.pin.lockout_columns_exist', async (ctx) => {
   await primeCache(ctx)
-  // Variant column names: cuenta_bloqueada, locked, locked_until, failed_pin_attempts.
-  const variants = ['cuenta_bloqueada','locked','locked_until','failed_pin_attempts','pin_locked_at']
+  // Canonical columns are pin_failed_attempts (int) + pin_locked_until (timestamptz).
+  // Older proposed variants kept in the search list for compat with installs that
+  // used different naming during development (cuenta_bloqueada / locked / locked_until
+  // / pin_locked_at / failed_pin_attempts).
+  const canonical = ['pin_failed_attempts','pin_locked_until']
+  const variants  = [...canonical,'cuenta_bloqueada','locked','locked_until','pin_locked_at','failed_pin_attempts']
   const present = variants.filter(c => hasColumn('staff', c))
-  ctx.assert(present.length >= 1, `staff has no lockout column (looked for ${variants.join(', ')})`)
-  ctx.log(`lockout cols: ${present.join(', ')}`)
+  const hasCanonical = canonical.every(c => present.includes(c))
+  ctx.assert(hasCanonical || present.length >= 1,
+    `staff has no lockout columns (looked for ${variants.join(', ')})`)
+  ctx.log(`lockout cols: ${present.join(', ') || '(none)'}`)
+}, { category: 'security.auth.pin' })
+
+harness.scenario('security.auth.pin.lockout_guard_trigger_exists', async (ctx) => {
+  await primeCache(ctx)
+  // trg_staff_pin_guard enforces server-side guards on pin_hash changes. Without
+  // it, an authed user could brute-force their own coworkers' PINs by repeatedly
+  // calling .update() on the staff table directly.
+  ctx.assert(hasProc(/staff_pin_guard|pin_lockout_enforce/i),
+    'no DB-side PIN guard function — lockout is client-only and bypassable via REST')
 }, { category: 'security.auth.pin' })
 
 harness.scenario('security.auth.pin.weak_pin_rejection_function', async (ctx) => {
