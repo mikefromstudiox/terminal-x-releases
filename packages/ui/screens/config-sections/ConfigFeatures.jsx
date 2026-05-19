@@ -7,18 +7,19 @@
 // behind in the monolithic Sistema page and became unreachable through
 // the new navigation. Surfaced during Ranoza's 3-terminal onboarding
 // when Mike couldn't find the setting.
-import { ToggleLeft, Network } from 'lucide-react'
+import { ToggleLeft, Network, Mail } from 'lucide-react'
 import { BusinessFeatureToggles } from '../Admin'
 import { useLang } from '../../i18n'
-import { SettingSection, SettingRow, Toggle, useSettings } from '../Sistema'
+import { SettingSection, SettingRow, Toggle, SaveBtn, Toast, useSettings } from '../Sistema'
 import { usePlan } from '../../hooks/usePlan.jsx'
 
 export default function ConfigFeatures() {
   const { lang } = useLang()
   const L = (es, en) => lang === 'es' ? es : en
-  const { cfg, set, on } = useSettings()
+  const { cfg, set, on, handleSave, saving, saved, toast } = useSettings()
   const { plan, hasFeature } = usePlan()
   const multiPosAllowed = plan === 'pro_max' || hasFeature?.('multi_pos')
+  const digestAllowed = hasFeature?.('remote_dashboard')
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50 dark:bg-black">
@@ -84,6 +85,37 @@ export default function ConfigFeatures() {
               </>
             )}
           </SettingSection>
+        </div>
+
+        {/* 2026-05-19 — Resumen Diario del Dueño moved here from /config/sync
+            per Mike's request. Lives in Funciones since it's an owner-level
+            feature toggle, not a sync setting. */}
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl border border-slate-200 dark:border-white/10 p-4 md:p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Mail size={18} className="text-[#b3001e]" />
+            <h2 className="text-[15px] font-bold text-slate-900 dark:text-white">{L('Resumen Diario del Dueño', 'Owner Daily Digest')}</h2>
+          </div>
+          <SettingSection title={null}>
+            <SettingRow
+              settingKey="daily_digest_enabled"
+              label={L('Activar resumen diario', 'Enable daily digest')}
+              hint={digestAllowed
+                ? L('Envía un resumen diario al dueño (ventas, gastos, cuadre).',
+                    'Sends a daily recap to the owner (sales, expenses, cuadre).')
+                : L('Requiere plan Pro PLUS o superior', 'Requires Pro PLUS or higher')}
+            >
+              <Toggle
+                enabled={on('daily_digest_enabled')}
+                onChange={v => digestAllowed && set('daily_digest_enabled', v ? '1' : '0')}
+                disabled={!digestAllowed}
+              />
+            </SettingRow>
+          </SettingSection>
+        </div>
+
+        <Toast toast={toast} />
+        <div className="flex justify-end pt-2">
+          <SaveBtn saving={saving} saved={saved} label={L('Guardar', 'Save')} onClick={handleSave} />
         </div>
       </div>
     </div>
