@@ -26,7 +26,7 @@ export default function AceptarContador({ supabase }) {
         if (cancelled) return
         if (!r.ok || !data.ok) {
           setLookup({ state: 'error', data: null, error: data.error || 'lookup_failed' })
-          try { window.__txReportError?.(`invite_lookup_failed: ${data.error || r.status}`, { severity: 'warning', category: 'contabilidad.invite.lookup', extra: { token_prefix: token.slice(0, 6), status: r.status } }) } catch {}
+          try { window.__txReportError?.(`invite_lookup_failed: ${data.error || r.status}`, { severity: 'warn', category: 'contabilidad.invite.lookup', extra: { token_prefix: token.slice(0, 6), status: r.status } }) } catch {}
         } else {
           setLookup({ state: 'ok', data, error: null })
         }
@@ -70,7 +70,7 @@ export default function AceptarContador({ supabase }) {
               ? 'Esta invitación ya fue aceptada por otra cuenta.'
               : data.error || 'No se pudo aceptar la invitación.'
         setLookup({ state: 'error', data: null, error: friendly })
-        try { window.__txReportError?.(`invite_accept_failed: ${data.error || r.status}`, { severity: 'warning', category: 'contabilidad.invite.accept', extra: { token_prefix: token.slice(0, 6), status: r.status } }) } catch {}
+        try { window.__txReportError?.(`invite_accept_failed: ${data.error || r.status}`, { severity: 'warn', category: 'contabilidad.invite.accept', extra: { token_prefix: token.slice(0, 6), status: r.status } }) } catch {}
         return
       }
       setSuccess(data)

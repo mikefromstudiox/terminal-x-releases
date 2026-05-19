@@ -5003,7 +5003,7 @@ async function _runDeploySmoke() {
     const hn = cspHeader.match(/'nonce-([A-Za-z0-9+/=_-]+)'/)
     const bn = html.match(/<script[^>]*\snonce=["']([A-Za-z0-9+/=_-]+)["']/i)
     if (hn && bn) push('A', 'CSP nonce header == body nonce', hn[1] === bn[1], { expected: hn[1], actual: bn[1] })
-    else if (!hn && !bn) push('A', 'CSP nonce header == body nonce', true, { severity: 'warning' })
+    else if (!hn && !bn) push('A', 'CSP nonce header == body nonce', true, { severity: 'warn' })
     else push('A', 'CSP nonce header == body nonce', false, { actual: `header=${!!hn} body=${!!bn}` })
     if (bundleUrl) {
       try {
@@ -5679,7 +5679,7 @@ async function handleCronClaudeTriage(req, res) {
           if (!wa.sent && wa.reason) {
             await sb.from('client_errors').insert({
               business_id: null, message: `whatsapp_critical_alert_skipped — ${wa.reason}`,
-              route: '/__claude_triage', severity: 'warning',
+              route: '/__claude_triage', severity: 'warn',
               metadata: { category: 'claude.triage.whatsapp_skipped', source_error_id: row.id, wa },
             }).then(() => {}, () => {})
           }

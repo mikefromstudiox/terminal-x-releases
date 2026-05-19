@@ -203,7 +203,7 @@ function RouteNotFound() {
     try {
       const fn = (typeof window !== 'undefined') && window.__txReportError
       if (fn) fn(`route_not_found: ${location.pathname}${location.search || ''}`, {
-        severity: 'warning',
+        severity: 'warn',
         category: 'routing',
         force: true,
       })
