@@ -74,7 +74,7 @@
     "tailwindcss": "^4.2.2",
     "terser": "^5.46.1",
     "vite": "^6.4.2",
-    "wait-on": "^7.2.0"
+    "wait-on": "^9.0.5"
   },
   "overrides": {
     "axios": "^1.15.0",
