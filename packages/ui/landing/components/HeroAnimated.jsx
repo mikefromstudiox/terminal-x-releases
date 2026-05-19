@@ -108,6 +108,9 @@ export default function HeroAnimated({ lang = 'es' }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: 'easeOut' }}
           >
+            <p className="text-[13px] sm:text-[14px] font-black tracking-[3px] text-black/80 mb-3 uppercase">
+              Terminal X <span className="text-[#b3001e]">·</span> <span className="font-bold tracking-[2px] text-black/55">Sistema POS y Facturación Electrónica DGII</span>
+            </p>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#b3001e]/10 border border-[#b3001e]/20 mb-6">
               <ShieldCheck size={14} className="text-[#b3001e]" />
               <span className="text-[11px] font-extrabold tracking-[2px] text-[#b3001e]">{t.eyebrow}</span>

@@ -1276,6 +1276,12 @@ function ServicePOS() {
           // Acumulas/Saldo block renders without re-querying the ledger
           // (awardLoyaltyPoints fires fire-and-forget downstream).
           loyaltyEarned: Number(paymentData.loyaltyEarned || 0),
+          // 2026-05-19 — surface licorería age-verification on printed/PDF
+          // receipt. Threaded from POS ageVerified state via pending.ageVerified
+          // (set in setCobrarModal). Falsy → no line; truthy → "VERIFICACION DE
+          // EDAD: SI" prints after totals, before footer. See printer.js +
+          // pdf.js sister edits.
+          age_verified: !!pending.ageVerified,
           cfg,
         }
         // v2.14.34 — await factura BEFORE conduce loop so the printer queues
@@ -3168,6 +3174,7 @@ function RetailPOS() {
           // v2.16.30 — loyalty earned + cfg for the receipt's Acumulas/Saldo block
           // and the per-business-type flag resolver.
           loyaltyEarned: Number(paymentData.loyaltyEarned || 0),
+          age_verified: !!pending.ageVerified,
           cfg,
         }
         if (cfg.print_factura_auto === '1') printClientReceipt(ticketData).catch(() => {})

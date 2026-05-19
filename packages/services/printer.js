@@ -671,6 +671,20 @@ export function buildClientReceipt(data, logoBytes = '') {
     lines.push(LF)
   }
 
+  // 2026-05-19 — Licorería age-verification line. Printed only when the POS
+  // captured a positive verification (AgeVerifyModal → tickets.age_verified=true);
+  // false/missing prints NOTHING so non-licorería receipts stay clean. Fiscal
+  // record — not gated by Personalización de Recibo toggles.
+  if (data.age_verified) {
+    lines.push(ALIGN_CENTER)
+    lines.push(BOLD_ON)
+    lines.push('VERIFICACION DE EDAD: SI')
+    lines.push(LF)
+    lines.push(BOLD_OFF)
+    lines.push(ALIGN_LEFT)
+    lines.push(LF)
+  }
+
   // ── QR / e-CF verification (fiscal electronic only)
   if (data.ncf && data.ncf.startsWith('E')) {
     lines.push(ALIGN_CENTER)

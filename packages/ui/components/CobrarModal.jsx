@@ -369,6 +369,10 @@ function SuccessView({ ticket, ecfResult, qrUrl, total, ncfType, onClose, lang, 
           loyaltyEarned: (selectedClient?.id && loyaltyEnabled)
             ? loyaltyPointsFor(total, loyaltyCfg.pointsRatio)
             : ((selectedClient?.id && isSalon) ? loyaltyPointsFor(total, 100) : 0),
+          // 2026-05-19 — licorería age verification surfaced on WhatsApp PDF copy
+          // identically to the thermal print. `ageVerified` is the POS-level
+          // state passed through paymentData → pdfData (parent CobrarModal scope).
+          age_verified: !!(ticket?.ageVerified || ticket?.age_verified),
         }
         const { base64, filename } = await buildReceiptPDFBase64(pdfData)
         await api.whatsapp.sendDocument({ to, base64, filename, caption: `${bName} - Recibo #${docNo}` })

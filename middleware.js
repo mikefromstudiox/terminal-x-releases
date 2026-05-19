@@ -404,23 +404,23 @@ const ROUTE_META = {
   // ES — homepage now also injects a keyword-led title (Sprint B SEO).
   '/': {
     lang: 'es',
-    title: 'Sistema POS y Software POS para RD · Terminal X DGII Cert #42483',
-    desc:  'Sistema POS dominicano certificado DGII para carwash, restaurante, tienda, salón, mecánica y concesionario. e-CF directo, modo offline 72h. Desde RD$2,490/mes. Prueba 7 días gratis.',
+    title: 'Terminal X — Sistema POS y Facturación Electrónica DGII para República Dominicana',
+    desc:  'Terminal X: sistema POS dominicano certificado DGII para carwash, restaurante, tienda, salón, mecánica y concesionario. e-CF directo, modo offline 72h. Desde RD$490/mes. Prueba 7 días gratis.',
   },
   '/pricing': {
     lang: 'es',
-    title: 'Precios POS y Facturación DGII en RD · Desde RD$490/mes — Terminal X',
+    title: 'Terminal X — Precios POS y Facturación DGII desde RD$490/mes',
     desc:  'Planes Terminal X: Facturación RD$490, Plus RD$990, Pro RD$2,490, Pro PLUS RD$4,490, Pro MAX RD$6,990. e-CF DGII directo, sin cobro por comprobante. 7 días gratis.',
   },
   '/signup': {
     lang: 'es',
-    title: 'Probar Terminal X 7 días gratis · POS DGII certificado en RD',
+    title: 'Terminal X — 7 días gratis · POS y Facturación DGII certificado en RD',
     desc:  'Activa el sistema POS dominicano en minutos. 7 días gratis Pro MAX con e-CF DGII, inventario, comisiones y nómina. Sin tarjeta. Prueba 7 días gratis.',
   },
   // Phase-1 SEO sprint landing pages (2026-05-18).
   '/sistema-pos': {
     lang: 'es',
-    title: 'Sistema POS para República Dominicana · Terminal X DGII Cert #42483',
+    title: 'Terminal X — Sistema POS para República Dominicana (DGII Cert #42483)',
     desc:  'Sistema POS dominicano certificado DGII para carwash, restaurante, tienda, salón, mecánica y concesionario. e-CF directo, modo offline 72h. Prueba 7 días gratis.',
   },
   '/software-pos': {
@@ -560,15 +560,15 @@ const ROUTE_META = {
 
   // ─── EN ───
   '/en': { lang: 'en',
-    title: 'Terminal X · POS & DGII Electronic Invoicing in the Dominican Republic',
-    desc:  'POS and DGII-certified e-CF (Cert #42483) for the Dominican Republic. No PSFE middleman, no per-receipt fee. Carwash, retail, restaurants. From RD$995/mo. 7-day free trial.',
+    title: 'Terminal X — POS & DGII Electronic Invoicing for the Dominican Republic',
+    desc:  'Terminal X: POS and DGII-certified e-CF (Cert #42483) for the Dominican Republic. No PSFE middleman, no per-receipt fee. Carwash, retail, restaurants. From RD$490/mo. 7-day free trial.',
   },
   '/en/pricing': { lang: 'en',
-    title: 'Pricing · Terminal X — POS & DGII e-invoicing from RD$995/mo',
-    desc:  'Terminal X plans: Invoicing RD$995, Plus RD$1,990, Unlimited RD$2,990, Pro RD$2,990, Pro PLUS RD$5,490, Pro MAX RD$9,990. 7 days free, no contract.',
+    title: 'Terminal X — POS & DGII e-invoicing pricing from RD$490/mo',
+    desc:  'Terminal X plans: Invoicing Pro RD$490, Pro PLUS RD$990, Pro MAX RD$1,990, POS Pro RD$2,490, POS Pro PLUS RD$4,490, POS Pro MAX RD$6,990. 7 days free, no contract.',
   },
   '/en/signup': { lang: 'en',
-    title: 'Sign up · Terminal X — 7-day free Pro MAX trial',
+    title: 'Terminal X — Sign up · 7-day free Pro MAX trial',
     desc:  'Activate Terminal X in minutes. 7 days free on the Pro MAX plan with every feature: DGII e-CF, POS, payroll and reports. No card, no contract.',
   },
   '/en/blog': { lang: 'en',

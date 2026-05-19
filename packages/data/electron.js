@@ -266,6 +266,38 @@ export function createElectronAPI() {
     foodTruckLocations: foodTruckLocationsAugmented,
     wasteLog: wasteLogAugmented,
     clients: raw.clients ? { ...raw.clients, ...loyalty } : raw.clients,
+    // v2.17.14 — ConfigPlan.jsx calls `api.license.current()`. Preload doesn't
+    // expose it (license data lives in `tx_license_cache` localStorage). Returns
+    // a row matching the web shape so ConfigPlan renders Próximo cobro/Prueba.
+    license: raw.license ? {
+      ...raw.license,
+      current: async () => {
+        try {
+          const raw_ = (typeof window !== 'undefined') ? localStorage.getItem('tx_license_cache') : null
+          if (!raw_) return null
+          const c = JSON.parse(raw_)
+          const expires_at = c.expiresAt || c.expires_at || null
+          const activated_at = c.activatedAt || c.activated_at || null
+          let trial_end = null
+          if (expires_at && activated_at) {
+            const exp = new Date(expires_at).getTime()
+            const act = new Date(activated_at).getTime()
+            if (Number.isFinite(exp) && Number.isFinite(act) && (exp - act) > 0 && (exp - act) <= 8 * 24 * 3600 * 1000) {
+              trial_end = expires_at
+            }
+          }
+          return {
+            id:           c.id || c.licenseId || null,
+            license_key:  c.licenseKey || c.license_key || null,
+            status:       c.status || 'active',
+            expires_at,
+            activated_at,
+            plan_id:      c.planId || c.plan_id || null,
+            trial_end,
+          }
+        } catch { return null }
+      },
+    } : raw.license,
     mesas: {
       list:        ()                   => raw.mesas.list(),
       create:      (data)               => raw.mesas.create(data),

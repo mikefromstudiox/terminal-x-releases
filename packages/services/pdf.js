@@ -289,6 +289,16 @@ async function buildPDF(data) {
   })
   y = totalBoxY - 10
 
+  // 2026-05-19 — Licorería age-verification line on PDF copy. Centered, bold,
+  // immediately under the TOTAL box. Prints only when data.age_verified is true;
+  // otherwise no spurious line on non-licorería tickets. Mirror of printer.js.
+  if (data.age_verified) {
+    const ageLine = 'VERIFICACION DE EDAD: SI'
+    const aw = fontB.widthOfTextAtSize(ageLine, 8)
+    page.drawText(ageLine, { x: MARGIN + (COL_W - aw) / 2, y: y - 8, size: 8, font: fontB, color: RGB(INK) })
+    y -= 14
+  }
+
   // ═══ QR VERIFICATION (e-CF only) ═══════════════════════════════════════════
   if (qrPngBase64) {
     const qrBytes = Uint8Array.from(atob(qrPngBase64), c => c.charCodeAt(0))
