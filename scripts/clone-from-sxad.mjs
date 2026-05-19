@@ -59,20 +59,35 @@ const newInv = (srcInv || []).filter(r => !existingInvNames.has((r.name || '').t
 console.log(`inventory_items: source=${srcInv?.length || 0}, target_existing=${existingInvNames.size}, to_insert=${newInv.length}`)
 
 // ── app_settings (only NEW keys; preserve target's hybrid config) ──
+//
+// 2026-05-19 — IDENTITY_KEYS blocklist added after CAR WASH DJ inherited
+// STUDIO X SRL's biz_name / biz_rnc / biz_phone / biz_address / biz_email
+// + dgii_environment='ecf' (production). Mike saw Studio X SRL info on
+// Darling Disla's client in the admin panel and worse — any e-CF that
+// fired from CAR WASH DJ would have hit DGII production under Studio X
+// SRL's RNC 133410321 (fiscal violation). These KVs uniquely identify
+// the business and must NEVER be cloned. Operational/feature KVs are
+// fine to clone.
+const IDENTITY_KEYS = new Set([
+  'biz_name', 'biz_rnc', 'biz_phone', 'biz_address', 'biz_email',
+  'biz_website', 'dgii_environment',
+])
 const { data: srcSettings } = await s.from('app_settings').select('*').eq('business_id', SOURCE_BIZ)
 const { data: tgtSettings } = await s.from('app_settings').select('key, device_hwid').eq('business_id', target)
 const existingKeys = new Set((tgtSettings || []).map(r => r.key + '::' + (r.device_hwid || 'null')))
 // Dedupe within source too — SXAD has some duplicate keys across hwid variants
 const srcSeen = new Set()
 const newSettings = []
+let identitySkipped = 0
 for (const r of (srcSettings || [])) {
+  if (IDENTITY_KEYS.has(r.key)) { identitySkipped++; continue }
   const tag = r.key + '::null'
   if (existingKeys.has(tag) || srcSeen.has(tag)) continue
   srcSeen.add(tag)
   const { id, updated_at, ...rest } = r
   newSettings.push({ ...rest, business_id: target, supabase_id: crypto.randomUUID(), is_device_local: false, device_hwid: null, updated_at: new Date().toISOString() })
 }
-console.log(`app_settings: source=${srcSettings?.length || 0}, target_existing=${existingKeys.size}, to_insert=${newSettings.length}`)
+console.log(`app_settings: source=${srcSettings?.length || 0}, target_existing=${existingKeys.size}, identity_skipped=${identitySkipped}, to_insert=${newSettings.length}`)
 
 console.log(`\nskipped tables: clients (per Mike), empleados (different staff), mesas (target has its own)`)
 
