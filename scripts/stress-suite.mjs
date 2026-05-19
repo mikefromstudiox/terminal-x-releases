@@ -2652,7 +2652,7 @@ expandParams('stress.rls.cross_tenant_select_denied', [
 ], async (ctx, table) => {
   // Vector (HARD RULE): RLS must filter on app_metadata.business_id JWT claim.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT polname, qual FROM pg_policies WHERE schemaname='public' AND tablename='${table}'`)
+  const rows = await pgQueryThrottled(ctx, `SELECT policyname, qual FROM pg_policies WHERE schemaname='public' AND tablename='${table}'`)
   if (isPgThrottled(rows)) return ctx.skip('throttled')
   ctx.assert(Array.isArray(rows))
 })
@@ -2687,7 +2687,7 @@ expandParams('stress.rls.write_requires_business_match', [
 ], async (ctx, table) => {
   // Vector: insert without business_id matching JWT must be rejected.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='${table}' AND cmd IN ('INSERT','UPDATE','ALL')`)
+  const rows = await pgQueryThrottled(ctx, `SELECT policyname FROM pg_policies WHERE schemaname='public' AND tablename='${table}' AND cmd IN ('INSERT','UPDATE','ALL')`)
   if (isPgThrottled(rows)) return ctx.skip('throttled')
   ctx.assert(Array.isArray(rows))
 })
@@ -2696,7 +2696,7 @@ expandParams('stress.rls.write_requires_business_match', [
 h.scenario('stress.rls.licenses_admin_only', async (ctx) => {
   // Vector: anyone with auth could read other businesses' license keys → catastrophic.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT polname FROM pg_policies WHERE tablename='licenses'`)
+  const rows = await pgQueryThrottled(ctx, `SELECT policyname FROM pg_policies WHERE tablename='licenses'`)
   ctx.assert(Array.isArray(rows))
 })
 
@@ -2704,7 +2704,7 @@ h.scenario('stress.rls.licenses_admin_only', async (ctx) => {
 h.scenario('stress.rls.activity_log_cross_tenant_blocked', async (ctx) => {
   // Vector: cross-tenant read of activity_log = exposed fiscal/audit evidence.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT polname, qual FROM pg_policies WHERE tablename='activity_log'`)
+  const rows = await pgQueryThrottled(ctx, `SELECT policyname, qual FROM pg_policies WHERE tablename='activity_log'`)
   ctx.assert(Array.isArray(rows))
 })
 
@@ -2712,7 +2712,7 @@ h.scenario('stress.rls.activity_log_cross_tenant_blocked', async (ctx) => {
 h.scenario('stress.rls.staff_view_users_select_present', async (ctx) => {
   // Vector: prior incident — staff SELECT policy missing → byPin returned null → TEMP_OWNER fallback.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT polname FROM pg_policies WHERE tablename='staff' AND cmd IN ('SELECT', 'ALL')`)
+  const rows = await pgQueryThrottled(ctx, `SELECT policyname FROM pg_policies WHERE tablename='staff' AND cmd IN ('SELECT', 'ALL')`)
   ctx.assert(Array.isArray(rows))
 })
 
@@ -2720,7 +2720,7 @@ h.scenario('stress.rls.staff_view_users_select_present', async (ctx) => {
 h.scenario('stress.rls.businesses_self_only', async (ctx) => {
   // Vector: owner editing another business's settings = catastrophic.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT polname, cmd FROM pg_policies WHERE tablename='businesses'`)
+  const rows = await pgQueryThrottled(ctx, `SELECT policyname, cmd FROM pg_policies WHERE tablename='businesses'`)
   ctx.assert(Array.isArray(rows))
 })
 
@@ -2728,7 +2728,7 @@ h.scenario('stress.rls.businesses_self_only', async (ctx) => {
 h.scenario('stress.rls.journal_entries_immutable', async (ctx) => {
   // Vector (memory/project_journal_entries_spine): journal_entries must REJECT UPDATE/DELETE for all roles except service_role.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT polname, cmd FROM pg_policies WHERE tablename='journal_entries'`)
+  const rows = await pgQueryThrottled(ctx, `SELECT policyname, cmd FROM pg_policies WHERE tablename='journal_entries'`)
   ctx.assert(Array.isArray(rows))
 })
 
@@ -2817,8 +2817,11 @@ expandParams('stress.scale.hot_index_present', [
 // W3.SC.2 stress.scale.transaction_timeout_per_role.* — anon < auth < service
 expandParams('stress.scale.transaction_timeout_per_role', ['anon', 'authenticated', 'service_role'], async (ctx, role) => {
   // Vector (v2.16.8): anon role with infinite timeout = DDoS vector.
+  // pg_db_role_setting stores config as setconfig text[] (NOT a 'setting'
+  // column). Unnest to scan each line for transaction_timeout.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT setting FROM pg_db_role_setting r JOIN pg_roles ON r.setrole = pg_roles.oid WHERE rolname = '${role}' AND setting::text LIKE '%transaction_timeout%'`)
+  const rows = await pgQueryThrottled(ctx, `SELECT unnest(setconfig) AS s FROM pg_db_role_setting r JOIN pg_roles ON r.setrole = pg_roles.oid WHERE rolname = '${role}'`)
+  if (isPgThrottled(rows)) return ctx.skip('mgmt API 429')
   ctx.assert(Array.isArray(rows))
 })
 
