@@ -212,16 +212,23 @@ function runSuiteChild(key) {
         }
       }
       // Legacy bridge: rls-policy-audit prints human text — synthesise summary.
+      // 2026-05-19 — prefer stdout markers over exit code. The script logically
+      // succeeds (prints '✓ Auditoría RLS limpia') but libuv on Windows crashes
+      // during process shutdown (Node 22 + undici exit race) → exit code 127.
+      // The bridge must not flag that as a finding.
       if (!summary && spec.legacy) {
+        const cleanMarker = /✓\s+Auditor[ií]a RLS limpia/.test(stdout)
         const violationMatch = stdout.match(/(\d+)\s+tabla\(s\)\s+con\s+RLS/i)
-        const failed = code === 0 ? 0 : (violationMatch ? Number(violationMatch[1]) : 1)
+        const violationLines = stdout.split('\n').filter(l => l.startsWith('✗'))
+        const logicallyGreen = cleanMarker && violationLines.length === 0
+        const failed = logicallyGreen ? 0 : (violationMatch ? Number(violationMatch[1]) : Math.max(violationLines.length, 1))
         summary = {
           suite: spec.label,
-          total: 1, passed: code === 0 ? 1 : 0, failed, skipped: 0,
+          total: 1, passed: logicallyGreen ? 1 : 0, failed, skipped: 0,
           durationMs: ms,
-          scenarios: code === 0 ? [] : [{
+          scenarios: logicallyGreen ? [] : [{
             id: 'rls.zero_policy_tables', category: 'rls', name: 'RLS policy coverage',
-            status: 'fail', error: stdout.split('\n').filter(l => l.startsWith('✗')).slice(0, 10).join(' | '),
+            status: 'fail', error: violationLines.slice(0, 10).join(' | '),
             timing: { ms },
           }],
         }
