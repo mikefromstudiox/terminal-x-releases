@@ -921,6 +921,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     status:   ()    => ipcRenderer.invoke('license:status'),
     setKey:   (key) => ipcRenderer.invoke('license:set-key', key),
     clearJwt: ()    => ipcRenderer.invoke('license:clear-jwt'),
+    // v2.17.13 — ConfigTerminales.jsx wiring (was undefined → screen
+    // always showed "Sin terminales registrados").
+    listForBusiness: ()         => ipcRenderer.invoke('license:list-for-business'),
+    updateLabel:     (payload)  => ipcRenderer.invoke('license:update-label', payload),
   },
 
   // ── Remote API (main process, no CORS) ────────────────────────────────────

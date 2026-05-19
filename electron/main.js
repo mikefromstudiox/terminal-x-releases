@@ -1462,6 +1462,55 @@ ipcMain.handle('license:is-master', (_, key) => {
   return match
 })
 
+// ── License directory (ConfigTerminales screen) ───────────────────────────────
+// v2.17.13 — UI calls api.license.listForBusiness / updateLabel; these were
+// undefined before, so Terminales always rendered "Sin terminales registrados"
+// even with active licenses. Route through Supabase REST using the validated
+// license JWT (carries business_id in app_metadata → RLS permits the read).
+function _supabaseUrl() {
+  return process.env.VITE_SUPABASE_URL || env.supabaseUrl || 'https://csppjsoirjflumaiipqw.supabase.co'
+}
+function _supabaseAnonKey() {
+  return process.env.VITE_SUPABASE_ANON_KEY || env.supabaseAnonKey
+}
+async function _licenseFetch(pathAndQuery, init = {}) {
+  const url = `${_supabaseUrl()}/rest/v1/${pathAndQuery}`
+  const anon = _supabaseAnonKey()
+  const bundle = licenseJwt.loadCachedJwt()
+  const bearer = bundle?.access_token || anon
+  if (!anon || !bearer) throw new Error('license:fetch missing Supabase creds')
+  return fetch(url, { ...init, headers: { apikey: anon, Authorization: `Bearer ${bearer}`, ...(init.headers || {}) } })
+}
+
+ipcMain.handle('license:list-for-business', async () => {
+  try {
+    const bundle = licenseJwt.loadCachedJwt()
+    const bid = bundle?.business_id
+    if (!bid) return []
+    const res = await _licenseFetch(`licenses?business_id=eq.${bid}&select=id,license_key,label,platform,hardware_id,last_seen,activated_at,expires_at,status&order=platform`)
+    if (!res.ok) return []
+    return await res.json()
+  } catch (e) {
+    console.error('[license:list-for-business]', e?.message)
+    return []
+  }
+})
+
+ipcMain.handle('license:update-label', async (_, { id, label }) => {
+  try {
+    if (!id) return { ok: false, error: 'missing id' }
+    const res = await _licenseFetch(`licenses?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ label: label || null }),
+    })
+    if (!res.ok) return { ok: false, error: `Supabase ${res.status}` }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e?.message || 'unknown' }
+  }
+})
+
 // ── Remote API calls (bypass CORS) ────────────────────────────────────────────
 const API_BASE = 'https://terminalxpos.com'
 
@@ -2133,16 +2182,18 @@ handle('auth:pin', async (pin) => {
   let u = db.authByPin(pin)
   if (u) return u
 
-  const staffCount = (db.usersGetAll?.() || []).length
-  const now = Date.now()
-  const stale = (now - _lastPinRescuePullAt) > PIN_RESCUE_COOLDOWN_MS
-  const shouldRescue = staffCount === 0 || stale
-  if (!shouldRescue) return u
-
-  _lastPinRescuePullAt = now
+  // v2.17.13 — Drop the 30s cooldown gate. The original throttle prevented
+  // sync spam under brute-force, but pin_failed_attempts + pin_locked_until
+  // already cap that risk (5 attempts → 5min lockout). The cooldown side
+  // effect was that admin-reset PINs took up to 30s to propagate to the
+  // desktop's local staff cache — when the cashier hammered her new PIN
+  // twice in a row, only the first try triggered a fresh pull, so the
+  // second was against still-stale local data. Now every PIN miss forces a
+  // fresh staff pull before re-validating. Cost is bounded by lockout.
+  _lastPinRescuePullAt = Date.now()
   try {
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[auth:pin] miss — staffCount=${staffCount} stale=${stale}, forcing sync pull`)
+      console.log('[auth:pin] miss — forcing sync pull')
     }
     await Promise.race([
       sync.pullNow?.() || Promise.resolve(),

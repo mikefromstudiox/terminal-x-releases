@@ -5505,6 +5505,25 @@ export function createWebAPI(supabase, businessId) {
     license: {
       hwid: () => Promise.resolve('web-client'),
       isMaster: () => Promise.resolve(false),
+      // v2.17.13 — ConfigTerminales.jsx calls these but they were undefined,
+      // so the screen always showed "Sin terminales registrados" even when
+      // licenses existed (Ranoza onboarding 2026-05-18 surfaced it). Adding
+      // them so the screen reflects reality from Supabase.
+      listForBusiness: () => tryOr(async () => {
+        const bid = await resolveBusinessId()
+        if (!bid) return []
+        const { data } = await supabase
+          .from('licenses')
+          .select('id, license_key, label, platform, hardware_id, last_seen, activated_at, expires_at, status')
+          .eq('business_id', bid)
+          .order('platform')
+          .order('last_seen', { ascending: false, nullsFirst: false })
+        return data || []
+      }, []),
+      updateLabel: ({ id, label }) => tryWrite(async () => {
+        await supabase.from('licenses').update({ label }).eq('id', id)
+        return { ok: true }
+      }),
     },
 
     // ── App version ──────────────────────────────────────────────────────────

@@ -4227,7 +4227,30 @@ function settingsGet() {
 }
 function settingsUpdate(obj) {
   if (!db) return
-  const bizId = db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null
+  // v2.17.13 — Resolve business_id with fallbacks so business-level settings
+  // written on a fresh install (before `supabase_business_id` has been seeded)
+  // still get pushed to cloud. Previously this returned null for fresh installs,
+  // causing every business-level upsert to land with business_id=NULL locally
+  // and then RLS-deny on push (JWT's app_metadata.business_id ≠ NULL). Root
+  // cause of Ranoza's go_live_date not propagating to cloud after her first
+  // production toggle 2026-05-18.
+  let bizId = db.prepare("SELECT value FROM app_settings WHERE key='supabase_business_id'").get()?.value || null
+  if (!bizId) {
+    // Fallback 1: license JWT bundle (electron/licenseJwt.js cache, decrypted
+    // via safeStorage). Available immediately after license activation.
+    try {
+      const licenseJwt = require('./licenseJwt')
+      bizId = licenseJwt.loadCachedJwt?.()?.business_id || null
+    } catch {}
+  }
+  if (!bizId) {
+    // Fallback 2: businesses table — the license activation flow seeds at
+    // least one row before settingsUpdate is ever called.
+    try {
+      const row = db.prepare('SELECT supabase_id FROM businesses LIMIT 1').get()
+      bizId = row?.supabase_id || null
+    } catch {}
+  }
   const hwid  = getLocalHwid()
   const stmt = db.prepare(`
     INSERT INTO app_settings(key, value, business_id, supabase_id, is_device_local, device_hwid, updated_at)
