@@ -7236,6 +7236,11 @@ function ticketCreate(data) {
     "ALTER TABLE tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE tickets ADD COLUMN client_name TEXT",
     "ALTER TABLE tickets ADD COLUMN client_rnc TEXT",
+    // 2026-05-19 — age_verified mirrors the Supabase column. Persists the
+    // cashier's age-confirmation event so reprints + DGII alcohol-sale
+    // audits keep the record. Default 0; cobrar writes 1 when AgeVerifyModal
+    // confirmed (licorería or any business with feature_age_verification_enabled).
+    "ALTER TABLE tickets ADD COLUMN age_verified INTEGER NOT NULL DEFAULT 0",
   ]
   for (const sql of SELF_HEAL_TICKETS_COLS) { try { db.exec(sql) } catch {} }
 
@@ -7403,9 +7408,9 @@ function ticketCreate(data) {
       (doc_number,client_id,client_name,client_rnc,washer_empleado_supabase_ids,seller_empleado_supabase_id,cajero_id,subtotal,descuento,itbis,ley,total,
        beverage_subtotal,payment_method,comprobante_type,ncf,ecf_result,tipo_venta,status,vehicle_plate,supabase_id,client_supabase_id,seller_supabase_id,cajero_supabase_id,
        mesa_id,mesa_supabase_id,fulfillment_type,tip_amount,servicio_amount,servicio_pct,mode,converted_from_mesa_id,converted_from_mesa_supabase_id,converted_from_ticket_id,converted_from_ticket_supabase_id,
-       origin_hwid,used_legacy_counter,notes,order_source,payment_parts,split_bill,is_test,
+       origin_hwid,used_legacy_counter,notes,order_source,payment_parts,split_bill,is_test,age_verified,
        created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).run(
       docNumber,
       data.client_id || null,
       data.client_name || null,
@@ -7448,6 +7453,7 @@ function ticketCreate(data) {
       paymentPartsJson,
       splitBillFlag,
       _live ? 0 : 1,
+      data.ageVerified ? 1 : 0,
     )
     const ticketId = result.lastInsertRowid
 

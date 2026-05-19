@@ -191,6 +191,7 @@ async function handler(req, res) {
   // escalations per run; beyond that rolled into one summary message).
   if (action === 'cron_mega_smoke')             return handleCronMegaSmoke(req, res)
   if (action === 'mega_smoke_history')          return handleMegaSmokeHistory(req, res)
+  if (action === 'cron_license_sweep')          return handleCronLicenseSweep(req, res)
 
   // ── v2.16.7 — Lending collections reminders (24h + 2h windows) ──────────
   // Hourly cron tick + license-JWT mark/list paths. WABA is NOT live —
@@ -5858,6 +5859,28 @@ async function handleClaudeTriageHistory(req, res) {
 // into one summary message). Each fail also writes a client_errors row so
 // the existing Layer 5 (cron_claude_triage) RCA pipeline kicks in.
 const _MEGA_SMOKE_WHATSAPP_CAP = 5
+
+// 2026-05-19 — Hourly sweep that flips licenses from status='active' to
+// 'expired' when their expires_at passes. Without this, status + expires_at
+// can drift (see Finding #8 from inaugural Mega Smoke run). Pure DB call;
+// the function sweep_expired_licenses() is a SECURITY DEFINER in public.
+async function handleCronLicenseSweep(req, res) {
+  const expected = process.env.CRON_SECRET
+  const got = req.headers.authorization || ''
+  const isVercelCron = !!req.headers['x-vercel-cron-signature']
+  if (!isVercelCron && (!expected || got !== `Bearer ${expected}`)) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    const { data, error } = await getClient().rpc('sweep_expired_licenses')
+    if (error) throw error
+    const flipped = typeof data === 'number' ? data : Number(data || 0)
+    return res.status(200).json({ ok: true, flipped })
+  } catch (err) {
+    reportServerError(err, { route: '/api/panel', action: 'cron_license_sweep' }).catch(() => {})
+    return res.status(500).json({ error: err?.message || 'license sweep failed' })
+  }
+}
 
 async function handleCronMegaSmoke(req, res) {
   const expected = process.env.CRON_SECRET

@@ -859,6 +859,9 @@ const SYNC_TABLES = [
         // v2.17 — Food Truck: per-ticket location stamp. Nullable; only set
         // by FoodTruckPOS, ignored elsewhere.
         food_truck_location_supabase_id: r.food_truck_location_supabase_id || null,
+        // 2026-05-19 — age verification proof. SQLite stores 0/1 INTEGER;
+        // Supabase column is boolean. Coerce explicitly.
+        age_verified: !!(r.age_verified || 0),
         created_at: r.created_at || new Date().toISOString(),
         updated_at: r.updated_at || null,
       }
