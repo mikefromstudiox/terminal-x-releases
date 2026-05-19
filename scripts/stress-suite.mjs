@@ -638,11 +638,17 @@ expandParams('stress.race.dual_terminal_ncf', ['B01_01', 'B01_02', 'B02_01', 'B1
 // 2.2 stress.race.dual_terminal_ncf.pg_catalog — verify uq_tickets_biz_ncf exists
 h.scenario('stress.race.dual_terminal_ncf.uq_constraint_exists', async (ctx) => {
   // pg_catalog HARD RULE: never trust code-grep alone for constraint shapes (2026-05-01 phantom partial-index lesson).
-  // Memory: Ranoza dual-terminal audit shipped uq_tickets_biz_ncf. Accept either the named constraint
-  // OR any UNIQUE/EXCLUDE constraint covering tickets(business_id, ncf).
+  // Memory: Ranoza dual-terminal audit shipped uq_tickets_biz_ncf. Accept either:
+  //   (a) a named UNIQUE/EXCLUDE constraint on tickets covering (business_id, ncf), OR
+  //   (b) a UNIQUE INDEX (partial or full) on tickets(business_id, ncf) — uq_tickets_biz_ncf
+  //       lives as a partial unique index `WHERE ncf IS NOT NULL`, not a constraint, so
+  //       pg_constraint alone misses it. Both enforce uniqueness equally at INSERT.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
-  const rows = await pgQueryThrottled(ctx, `SELECT c.conname, c.contype FROM pg_constraint c WHERE c.conrelid = 'tickets'::regclass AND c.contype IN ('u','x') AND pg_get_constraintdef(c.oid) ILIKE '%ncf%'`)
-  ctx.assert(rows.length >= 1, 'a UNIQUE constraint on tickets(business_id, ncf) must exist (uq_tickets_biz_ncf or equivalent)')
+  const constraints = await pgQueryThrottled(ctx, `SELECT c.conname FROM pg_constraint c WHERE c.conrelid = 'tickets'::regclass AND c.contype IN ('u','x') AND pg_get_constraintdef(c.oid) ILIKE '%ncf%'`)
+  const indexes = await pgQueryThrottled(ctx, `SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename='tickets' AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%ncf%'`)
+  const total = (constraints?.length || 0) + (indexes?.length || 0)
+  ctx.assert(total >= 1, 'a UNIQUE constraint OR partial unique index on tickets(business_id, ncf) must exist (uq_tickets_biz_ncf or equivalent)')
+  ctx.log(`coverage: constraints=${constraints?.length || 0} indexes=${indexes?.length || 0}`)
 })
 
 // 2.3 stress.race.simultaneous_payment.* — two cashiers cobrar same open ticket
