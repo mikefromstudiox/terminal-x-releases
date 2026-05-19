@@ -155,10 +155,10 @@ export default function OnboardingWizard() {
             <FirstSalePath api={api} L={L}
               onDone={async () => {
                 setDoneFlags(f => ({ ...f, firstsale: true }))
-                if (doneFlags.settings) { await close('completed'); navigate('/pos'); return }
+                if (doneFlags.settings) { await close('completed'); navigate('/pos/'); return }
                 await persistState('crosspromo'); setStage('crosspromo')
               }}
-              onGoToPos={async () => { await close('completed'); navigate('/pos') }}
+              onGoToPos={async () => { await close('completed'); navigate('/pos/') }}
               onBack={() => setStage('chooser')} />
           )}
           {stage === 'crosspromo' && (

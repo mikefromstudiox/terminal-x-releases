@@ -110,7 +110,7 @@ export default function Pendientes() {
     try { sessionStorage.setItem('foodtruck_load_pending', JSON.stringify(row)) } catch (e) {
       try { window.__txReportError?.(e, { severity: 'warn', category: 'foodtruck.pending.cobrar_direct', extra: { id: row?.id } }) } catch {}
     }
-    navigate('/pos')
+    navigate('/pos/')
   }
   const loadToCart = cobrarDirect
 

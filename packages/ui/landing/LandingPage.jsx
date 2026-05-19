@@ -420,7 +420,7 @@ export default function LandingPage({ section, forceLang }) {
             <button onClick={toggleLang} className="flex items-center gap-1.5 text-sm font-medium text-white/50 hover:text-white transition-colors">
               <Globe size={14} /> {lang === 'es' ? 'EN' : 'ES'}
             </button>
-            <button onClick={() => navigate('/pos')} className="bg-[#b3001e] hover:bg-[#d4002a] rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors shadow-lg shadow-red-500/25">
+            <button onClick={() => navigate('/pos/')} className="bg-[#b3001e] hover:bg-[#d4002a] rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors shadow-lg shadow-red-500/25">
               {L('Iniciar Sesion', 'Log In')}
             </button>
           </div>
@@ -439,7 +439,7 @@ export default function LandingPage({ section, forceLang }) {
                 ? <Link key={link.href} to={link.href} onClick={() => setMobileMenuOpen(false)} className="block py-3 text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</Link>
                 : <a key={link.href} href={link.href} onClick={() => setMobileMenuOpen(false)} className="block py-3 text-sm font-medium text-white/70 hover:text-[#b3001e] transition-colors">{link.label}</a>
             ))}
-            <button onClick={() => { setMobileMenuOpen(false); navigate('/pos') }} className="mt-2 w-full bg-[#b3001e] hover:bg-[#d4002a] rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors">
+            <button onClick={() => { setMobileMenuOpen(false); navigate('/pos/') }} className="mt-2 w-full bg-[#b3001e] hover:bg-[#d4002a] rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors">
               {L('Iniciar Sesion', 'Log In')}
             </button>
           </div>
@@ -1518,7 +1518,7 @@ export default function LandingPage({ section, forceLang }) {
                 rel="noopener noreferrer"
                 className="hover:text-white/70 transition-colors"
               >
-                {L('Clientes existentes: descargar última versión de escritorio (Windows) — v2.17.8', 'Existing customers: download latest desktop build (Windows) — v2.17.8')}
+                {L('Clientes existentes: descargar última versión de escritorio (Windows) — v2.17.13', 'Existing customers: download latest desktop build (Windows) — v2.17.13')}
               </a>
             </p>
           </div>

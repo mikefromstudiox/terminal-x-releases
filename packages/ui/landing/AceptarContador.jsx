@@ -195,7 +195,7 @@ export default function AceptarContador({ supabase }) {
               </p>
             )}
             <button
-              onClick={() => navigate('/pos')}
+              onClick={() => navigate('/pos/')}
               className="mt-4 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-white text-black text-sm font-bold hover:bg-white/90"
             >
               Ir a mi POS <ArrowRight size={14} />

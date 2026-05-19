@@ -184,7 +184,7 @@ export default function SignupPage({ supabase, forceLang }) {
       if (!resp.ok) throw new Error(result.error || L('Error al crear negocio', 'Error creating business'))
 
       // Success — redirect to POS
-      navigate('/pos')
+      navigate('/pos/')
     } catch (err) {
       setError(err.message || L('Error al registrar', 'Registration error'))
     } finally {
