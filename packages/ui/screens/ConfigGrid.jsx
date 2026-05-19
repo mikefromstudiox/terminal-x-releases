@@ -262,6 +262,21 @@ const ALL_CARDS = [
              en: 'Active POS terminals, per-device labels, last seen.' },
     to: '/config/terminales',
   },
+  // 2026-05-19 — Safety-net card. When Sistema.jsx was broken into
+  // config-sections cards in v2.17.x, several sections didn't get migrated
+  // (Go-Live Date, Daily Digest, Impuestos y Cargos, Auto Print extras,
+  // Básculas/Scales, KDS timings). Add a Configuración Avanzada card that
+  // links to the legacy Sistema page so nothing stays unreachable while
+  // v2.18 distributes those sections to their proper homes.
+  {
+    id: 'advanced',
+    icon: Settings,
+    title: { es: 'Configuración Avanzada', en: 'Advanced Settings' },
+    desc:  { es: 'Go-Live, impuestos, resumen diario, básculas, KDS — opciones que aún no se han movido a su tarjeta dedicada.',
+             en: 'Go-Live, taxes, daily digest, scales, KDS — options not yet migrated to their dedicated card.' },
+    to: '/sistema',
+    roles: ['owner', 'manager', 'cfo'],
+  },
 ]
 
 export default function ConfigGrid() {

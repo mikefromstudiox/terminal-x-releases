@@ -45,6 +45,28 @@ export default function ConfigSecurity() {
           </SettingRow>
         </SettingSection>
 
+        {/* 2026-05-19 — Kiosco / Auto-Lock promoted from Sistema.jsx as part of
+            the config-sections split-cleanup. Was orphaned when Sistema was
+            broken into separate cards in v2.17.x. */}
+        <SettingSection title={L('Kiosco / Auto-bloqueo', 'Kiosk / Auto-Lock')}>
+          <SettingRow settingKey="kiosk_auto_lock_enabled"
+            label={L('Bloqueo automático por inactividad', 'Auto-lock on inactivity')}
+            hint={L('Después de X minutos sin actividad, el POS pide PIN para continuar.',
+                    'After X idle minutes, the POS requires a PIN to continue.')}>
+            <Toggle enabled={on('kiosk_auto_lock_enabled')} onChange={v => set('kiosk_auto_lock_enabled', v ? '1' : '0')} />
+          </SettingRow>
+          {on('kiosk_auto_lock_enabled') && (
+            <SettingRow settingKey="kiosk_auto_lock_minutes"
+              label={L('Minutos de inactividad', 'Idle minutes')}
+              hint={L('Defecto: 5 minutos', 'Default: 5 minutes')}>
+              <Input type="number" min="1" max="60" step="1"
+                value={cfg.kiosk_auto_lock_minutes ?? '5'}
+                onChange={e => set('kiosk_auto_lock_minutes', e.target.value)}
+                className="w-20 text-center" />
+            </SettingRow>
+          )}
+        </SettingSection>
+
         <button
           type="button" onClick={() => navigate('/config/usuarios')}
           className="mt-4 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] p-4 text-left hover:border-[#b3001e] transition-colors group"
