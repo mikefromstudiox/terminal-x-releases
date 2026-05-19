@@ -327,12 +327,20 @@ for (const c of DUPE_CANDIDATES) {
     const allCols = c.cols
     const tableColNames = new Set(getColumns(c.table).map(x => x.column_name))
     if (!allCols.every(x => tableColNames.has(x))) return ctx.skip(`columns missing on ${c.table}`)
+    // 2026-05-19 — app_settings has per-device scoping; the real natural key is
+    // (business_id, key, device_hwid). A row with device_hwid=null is the
+    // business-wide value; a row with a non-null hwid is a terminal-local
+    // override. Both can legitimately coexist. Enforced by the partial unique
+    // indexes uq_app_settings_biz_key_device + uq_app_settings_biz_key_global.
+    const expandedCols = (c.table === 'app_settings' && tableColNames.has('device_hwid'))
+      ? [...allCols, `COALESCE(device_hwid, '<global>')`]
+      : allCols
     const where = allCols.map(col => `${col} IS NOT NULL`).join(' AND ')
-    const groupBy = allCols.join(', ')
+    const groupBy = expandedCols.join(', ')
     const sql = `SELECT count(*) AS dupe_groups, COALESCE(SUM(cnt-1),0) AS extra FROM (SELECT ${groupBy}, count(*) AS cnt FROM public.${c.table} WHERE ${where} GROUP BY ${groupBy} HAVING count(*)>1) g`
     const r = await ctx.pgQuery(sql)
     const extra = Number(r[0]?.extra || 0)
-    ctx.assertEq(extra, 0, `${c.table} has ${extra} extra rows duplicating natural key (${allCols.join(',')}) — verify: ${sql}`)
+    ctx.assertEq(extra, 0, `${c.table} has ${extra} extra rows duplicating natural key (${expandedCols.join(',')}) — verify: ${sql}`)
   })
 }
 

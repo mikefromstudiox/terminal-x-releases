@@ -4,7 +4,7 @@
 > If reality diverges from this file, regenerate the file and read it again.
 
 - **Project ref:** `csppjsoirjflumaiipqw`
-- **Snapshot taken:** 2026-05-19T06:42:48.874Z
+- **Snapshot taken:** 2026-05-19T07:02:51.160Z
 - **Generator:** `scripts/schema-snapshot.mjs` (re-run to refresh)
 - **Read-only:** every query is a SELECT against `pg_catalog` / `information_schema` — no DDL.
 
@@ -1509,7 +1509,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `api_rate_limits`
 
-- Rough row count (n_live_tup): **1180**
+- Rough row count (n_live_tup): **1190**
 - RLS enabled: **YES**
 
 **Columns**
@@ -1587,6 +1587,10 @@ Total tables: **159** (RLS enabled: **159**)
   `CREATE INDEX idx_app_settings_business ON public.app_settings USING btree (business_id)`
 - `idx_app_settings_business_updated` (btree)
   `CREATE INDEX idx_app_settings_business_updated ON public.app_settings USING btree (business_id, updated_at)`
+- `uq_app_settings_biz_key_device` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE UNIQUE INDEX uq_app_settings_biz_key_device ON public.app_settings USING btree (business_id, key, device_hwid) WHERE (device_hwid IS NOT NULL)`
+- `uq_app_settings_biz_key_global` (btree)  **(PARTIAL — NOT usable as on_conflict target)**
+  `CREATE UNIQUE INDEX uq_app_settings_biz_key_global ON public.app_settings USING btree (business_id, key) WHERE (device_hwid IS NULL)`
 
 ### `appointment_reminders`
 
@@ -2288,7 +2292,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `client_errors`
 
-- Rough row count (n_live_tup): **23731**
+- Rough row count (n_live_tup): **23772**
 - RLS enabled: **YES**
 
 **Columns**
@@ -2969,7 +2973,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `cron_health_runs`
 
-- Rough row count (n_live_tup): **54**
+- Rough row count (n_live_tup): **55**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3110,7 +3114,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `deploy_smoke_results`
 
-- Rough row count (n_live_tup): **117**
+- Rough row count (n_live_tup): **119**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3144,7 +3148,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `dgii_seed_nonces`
 
-- Rough row count (n_live_tup): **48**
+- Rough row count (n_live_tup): **26**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3686,7 +3690,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `empleados`
 
-- Rough row count (n_live_tup): **104**
+- Rough row count (n_live_tup): **128**
 - RLS enabled: **YES**
 
 **Columns**
@@ -3805,7 +3809,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `flow_drift_runs`
 
-- Rough row count (n_live_tup): **115**
+- Rough row count (n_live_tup): **117**
 - RLS enabled: **YES**
 
 **Columns**
@@ -5070,7 +5074,7 @@ Total tables: **159** (RLS enabled: **159**)
 
 ### `mega_smoke_runs`
 
-- Rough row count (n_live_tup): **50**
+- Rough row count (n_live_tup): **52**
 - RLS enabled: **YES**
 
 **Columns**
@@ -19470,7 +19474,7 @@ These have all bitten Terminal X in production. Future readers — check this li
 - Tables: **159** (RLS-enabled: 159)
 - Columns: **3110**
 - Constraints: **790** (PK: 191, UNIQUE: 292, FK: 164, CHECK: 141)
-- Indexes: **989** (partial: 144)
+- Indexes: **991** (partial: 146)
 - Policies: **421** (`app_metadata`: 265, `user_metadata`: 0)
 - Functions: **262**
 - Triggers: **294**
