@@ -27,6 +27,12 @@ import ConfigSecurity from './config-sections/ConfigSecurity'
 import ConfigFeatures from './config-sections/ConfigFeatures'
 import ConfigSalon from './config-sections/ConfigSalon'
 import ConfigNCF from './config-sections/ConfigNCF'
+import ConfigImpuestos from './config-sections/ConfigImpuestos'
+import ConfigGoLive from './config-sections/ConfigGoLive'
+import ConfigLoyalty from './config-sections/ConfigLoyalty'
+import ConfigRecibo from './config-sections/ConfigRecibo'
+import ConfigRestaurant from './config-sections/ConfigRestaurant'
+import ConfigBasculas from './config-sections/ConfigBasculas'
 import { Link } from 'react-router-dom'
 import { Crown, ArrowRight } from 'lucide-react'
 
@@ -76,7 +82,7 @@ export default function Config() {
   if (!section) return <ConfigGrid />
 
   // Owner-only sections
-  const ownerOnly = ['updates', 'preferencias', 'printer', 'whatsapp', 'commissions', 'sync', 'pedidosya', 'event', 'license', 'funciones', 'salon']
+  const ownerOnly = ['updates', 'preferencias', 'printer', 'whatsapp', 'commissions', 'sync', 'pedidosya', 'event', 'license', 'funciones', 'salon', 'impuestos', 'go-live', 'loyalty', 'recibo', 'restaurant', 'basculas']
   if (ownerOnly.includes(section) && user?.role !== 'owner') {
     return <Navigate to="/config/empresa" replace />
   }
@@ -119,6 +125,14 @@ export default function Config() {
   if (section === 'salon')       return <ConfigSalon />
   if (section === 'ncf')         return <ConfigNCF />
   if (section === 'memberships') return <ConfigMembershipsSoon />
+  // 2026-05-19 — Six cards promoted from Sistema.jsx in the atomic
+  // config rework. Replaces the 'advanced' safety-net card.
+  if (section === 'impuestos')   return <ConfigImpuestos />
+  if (section === 'go-live')     return <ConfigGoLive />
+  if (section === 'loyalty')     return <ConfigLoyalty />
+  if (section === 'recibo')      return <ConfigRecibo />
+  if (section === 'restaurant')  return <ConfigRestaurant />
+  if (section === 'basculas')    return <ConfigBasculas />
 
   return <Navigate to="/config/empresa" replace />
 }

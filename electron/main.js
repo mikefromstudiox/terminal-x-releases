@@ -2132,6 +2132,71 @@ handle('app:is-live',         ()  => db.isProductionLive())
 handle('app:test-data-count', ()  => db.testDataCount())
 handleMut('app:go-live-commit', () => db.goLiveCommit())
 
+// ── Reset Local DB (recovery action) ────────────────────────────────────────
+// 2026-05-19 — Eliminates the manual %APPDATA%\Terminal X delete dance for
+// support + first-install recovery. Owner-only. Closes the DB, optionally
+// backs it up via the existing backup:local helper, then wipes EVERY file
+// inside %APPDATA%\Terminal X (keeping the folder so the installer doesn't
+// have to recreate it), then app.relaunch() + app.exit() so the app comes
+// back up in fresh-install state (license activation screen).
+ipcMain.handle('app:reset-local-db', async (_evt, opts = {}) => {
+  try {
+    // Owner-role gate. db.getActiveUser is set on staff login.
+    const actor = db.getActiveUser?.() || null
+    if (actor && actor.role !== 'owner') {
+      return { ok: false, error: 'Solo dueño puede resetear la base local' }
+    }
+    // Trail the wipe in cloud (best-effort — DB closes right after).
+    try {
+      db.activityLogRecord?.({
+        event_type: 'local_db_reset',
+        severity: 'critical',
+        target_type: 'system',
+        target_name: 'terminal-x.db',
+        reason: 'owner-initiated reset from /config/security',
+        metadata: { backup_first: !!opts.backupFirst },
+      })
+    } catch {}
+
+    // Optional pre-reset backup.
+    if (opts.backupFirst) {
+      try {
+        const dbPath = path.join(app.getPath('userData'), 'terminal-x.db')
+        if (fs.existsSync(dbPath)) {
+          const backupDir = path.join(app.getPath('userData'), 'backups')
+          fs.mkdirSync(backupDir, { recursive: true })
+          const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+          fs.copyFileSync(dbPath, path.join(backupDir, `pre-reset_${ts}.db`))
+        }
+      } catch (e) { console.warn('[app:reset-local-db] backup failed (continuing):', e?.message) }
+    }
+
+    // Close the DB so the .db file isn't held open during wipe.
+    try { db.closeDb?.() } catch {}
+
+    // Wipe userData contents (keep folder).
+    const userDataPath = app.getPath('userData')
+    try {
+      for (const entry of fs.readdirSync(userDataPath)) {
+        const p = path.join(userDataPath, entry)
+        try {
+          const stat = fs.statSync(p)
+          if (stat.isDirectory()) fs.rmSync(p, { recursive: true, force: true })
+          else fs.unlinkSync(p)
+        } catch (e) { console.warn('[app:reset-local-db] skip', p, e?.message) }
+      }
+    } catch (e) {
+      return { ok: false, error: 'No se pudo borrar userData: ' + (e?.message || 'error') }
+    }
+
+    // Relaunch.
+    setTimeout(() => { app.relaunch(); app.exit(0) }, 250)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err?.message || 'reset failed' }
+  }
+})
+
 // ── Cloud Sync ───────────────────────────────────────────────────────────────
 handle('sync:status', () => sync.getStatus())
 handle('sync:now',    async () => { await sync.syncNow(); return sync.getStatus() })

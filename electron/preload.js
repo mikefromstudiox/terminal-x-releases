@@ -68,11 +68,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update: (obj) => call('settings:update', obj),
   },
 
-  // ── Go-Live Gate ───────────────────────────────────────────────────────────
+  // ── Go-Live Gate + Recovery ────────────────────────────────────────────────
   app: {
     isLive:        ()  => call('app:is-live'),
     testDataCount: ()  => call('app:test-data-count'),
     goLiveCommit:  ()  => call('app:go-live-commit'),
+    // 2026-05-19 — Owner-only recovery action. Wipes %APPDATA%\Terminal X
+    // and relaunches the app. Cloud preserved; everything re-syncs on
+    // re-activation. Replaces the manual delete-folder dance.
+    resetLocalDb:  (opts) => ipcRenderer.invoke('app:reset-local-db', opts || {}),
   },
 
   // ── Inventory ──────────────────────────────────────────────────────────────

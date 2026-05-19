@@ -19,7 +19,8 @@ import {
   Building2, Receipt, Printer, MessageSquare, PiggyBank, Cloud, Crown,
   Truck, KeyRound, Users, Settings, ChevronRight, Shield, Download,
   LayoutGrid, MapPin, Trash2, Sparkles, Calendar, Banknote, FileText,
-  Tag, Smartphone, ToggleLeft, Scissors,
+  Tag, Smartphone, ToggleLeft, Scissors, Rocket, Award, ReceiptText,
+  UtensilsCrossed, Scale,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { usePlan } from '../hooks/usePlan'
@@ -262,20 +263,65 @@ const ALL_CARDS = [
              en: 'Active POS terminals, per-device labels, last seen.' },
     to: '/config/terminales',
   },
-  // 2026-05-19 — Safety-net card. When Sistema.jsx was broken into
-  // config-sections cards in v2.17.x, several sections didn't get migrated
-  // (Go-Live Date, Daily Digest, Impuestos y Cargos, Auto Print extras,
-  // Básculas/Scales, KDS timings). Add a Configuración Avanzada card that
-  // links to the legacy Sistema page so nothing stays unreachable while
-  // v2.18 distributes those sections to their proper homes.
+  // 2026-05-19 — Six new cards promoted from Sistema.jsx as part of the
+  // atomic config rework. Replaces the 'advanced' safety-net card (deleted)
+  // that pointed to /sistema as a fallback.
   {
-    id: 'advanced',
-    icon: Settings,
-    title: { es: 'Configuración Avanzada', en: 'Advanced Settings' },
-    desc:  { es: 'Go-Live, impuestos, resumen diario, básculas, KDS — opciones que aún no se han movido a su tarjeta dedicada.',
-             en: 'Go-Live, taxes, daily digest, scales, KDS — options not yet migrated to their dedicated card.' },
-    to: '/sistema',
-    roles: ['owner', 'manager', 'cfo'],
+    id: 'impuestos',
+    icon: Receipt,
+    title: { es: 'Impuestos y Cargos', en: 'Taxes & Charges' },
+    desc:  { es: 'ITBIS, tasa USD, ley 10%, y otros cargos automáticos.',
+             en: 'ITBIS, USD rate, 10% service law, and other automatic charges.' },
+    to: '/config/impuestos',
+    roles: ['owner'],
+  },
+  {
+    id: 'go_live',
+    icon: Rocket,
+    title: { es: 'Producción (Go-Live)', en: 'Production (Go-Live)' },
+    desc:  { es: 'Fecha de transición de MODO PRUEBA a producción real.',
+             en: 'Date to transition from TEST MODE to real production.' },
+    to: '/config/go-live',
+    roles: ['owner'],
+  },
+  {
+    id: 'loyalty',
+    icon: Award,
+    title: { es: 'Lealtad', en: 'Loyalty' },
+    desc:  { es: 'Acumula puntos por compra y canjea en cobro.',
+             en: 'Earn points per sale and redeem at checkout.' },
+    to: '/config/loyalty',
+    feature: 'loyalty',
+    roles: ['owner'],
+  },
+  {
+    id: 'recibo',
+    icon: ReceiptText,
+    title: { es: 'Recibo (Diseño y Footer)', en: 'Receipt (Design & Footer)' },
+    desc:  { es: 'Qué se imprime en el ticket y el mensaje al pie.',
+             en: 'What prints on the ticket and the footer message.' },
+    to: '/config/recibo',
+    roles: ['owner'],
+  },
+  {
+    id: 'restaurant',
+    icon: UtensilsCrossed,
+    title: { es: 'Restaurante (KDS y Mesas)', en: 'Restaurant (KDS & Tables)' },
+    desc:  { es: 'Servicio 10%, pre-cuenta, course pacing, umbrales del KDS.',
+             en: '10% service, pre-bill, course pacing, KDS thresholds.' },
+    to: '/config/restaurant',
+    roles: ['owner'],
+    when: ({ isRestaurant }) => isRestaurant,
+  },
+  {
+    id: 'basculas',
+    icon: Scale,
+    title: { es: 'Básculas', en: 'Scales' },
+    desc:  { es: 'Registro y calibración de básculas para venta por peso.',
+             en: 'Scale registry and calibration for sales by weight.' },
+    to: '/config/basculas',
+    roles: ['owner'],
+    when: ({ isCarniceria }) => isCarniceria,
   },
 ]
 
