@@ -124,21 +124,23 @@ async function logActivity (ctx, row) {
 
 // pg_catalog query with rate-limit retry. Management API caps ~30 req/min.
 let __lastPgAt = 0
+// 2026-05-19 — the harness's ctx.pgQuery now handles 429 retry + spread
+// internally (lib/audit-harness.js). This wrapper just forwards; kept for
+// callsite signature stability and to add a sentinel-tagged empty array
+// when the harness exhausts retries (which it surfaces as a thrown 429).
+const PG_THROTTLED = Symbol('pg_throttled')
 async function pgQueryThrottled (ctx, sql) {
-  // Spread requests to avoid 429.
-  const now = Date.now()
-  const dt = now - __lastPgAt
-  if (dt < 250) await new Promise(r => setTimeout(r, 250 - dt))
-  __lastPgAt = Date.now()
   try { return await ctx.pgQuery(sql) }
   catch (e) {
-    if (/429|Too Many/i.test(String(e.message))) {
-      await new Promise(r => setTimeout(r, 3000))
-      try { return await ctx.pgQuery(sql) } catch { return [] }
+    if (/429|Too Many|exhausted/i.test(String(e.message))) {
+      const out = []
+      out[PG_THROTTLED] = true
+      return out
     }
     throw e
   }
 }
+function isPgThrottled(rows) { return Array.isArray(rows) && rows[PG_THROTTLED] === true }
 
 async function seedNcfSequence (ctx, type, prefix, opts = {}) {
   const sid = uid()
@@ -645,7 +647,9 @@ h.scenario('stress.race.dual_terminal_ncf.uq_constraint_exists', async (ctx) => 
   //       pg_constraint alone misses it. Both enforce uniqueness equally at INSERT.
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
   const constraints = await pgQueryThrottled(ctx, `SELECT c.conname FROM pg_constraint c WHERE c.conrelid = 'tickets'::regclass AND c.contype IN ('u','x') AND pg_get_constraintdef(c.oid) ILIKE '%ncf%'`)
+  if (isPgThrottled(constraints)) return ctx.skip('mgmt API 429 (constraint query)')
   const indexes = await pgQueryThrottled(ctx, `SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename='tickets' AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%ncf%'`)
+  if (isPgThrottled(indexes)) return ctx.skip('mgmt API 429 (index query)')
   const total = (constraints?.length || 0) + (indexes?.length || 0)
   ctx.assert(total >= 1, 'a UNIQUE constraint OR partial unique index on tickets(business_id, ncf) must exist (uq_tickets_biz_ncf or equivalent)')
   ctx.log(`coverage: constraints=${constraints?.length || 0} indexes=${indexes?.length || 0}`)
@@ -1794,6 +1798,7 @@ expandParams('stress.scale.index_present', [
   if (!process.env.SUPABASE_ACCESS_TOKEN) return ctx.skip('access token required')
   const [table] = spec.split(':')
   const rows = await pgQueryThrottled(ctx, `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = '${table}'`)
+  if (isPgThrottled(rows)) return ctx.skip('mgmt API 429 — re-run when throttle resets')
   ctx.assert(rows.length >= 1, `${table} has at least one index`)
 })
 
