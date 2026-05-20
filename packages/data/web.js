@@ -208,6 +208,13 @@ async function tryWrite(fn, label = 'web.write') {
   try {
     return await fn()
   } catch (err) {
+    // Validation rejections (PIN strength, required fields, etc.) are USER
+    // INPUT errors, not system errors — the UI surfaces them via toast. Don't
+    // pollute admin Errores recientes / Triage Claude with them. Marker is set
+    // on the Error itself; thrower (assertStrongPin etc.) tags `err.userInput = true`.
+    if (err && err.userInput === true) {
+      throw err
+    }
     console.error('[web.js WRITE]', label, err.message || err)
     try {
       if (typeof window !== 'undefined' && typeof window.__txReportError === 'function') {
@@ -530,17 +537,18 @@ function bcryptComparePinWeb(pin, salt, hash) {
 // Throws (caught by tryWrite → reported to admin Errores).
 function assertStrongPin(pin) {
   const s = String(pin || '')
-  if (!/^\d{4,6}$/.test(s)) throw new Error('PIN debe ser de 4 a 6 dígitos')
-  if (/^(\d)\1+$/.test(s)) throw new Error('PIN no puede ser dígitos repetidos (ej. 0000, 1111)')
+  const bad = (msg) => { const e = new Error(msg); e.userInput = true; throw e }
+  if (!/^\d{4,6}$/.test(s)) bad('PIN debe ser de 4 a 6 dígitos')
+  if (/^(\d)\1+$/.test(s)) bad('PIN no puede ser dígitos repetidos (ej. 0000, 1111)')
   const banned = new Set(['1234','12345','123456','4321','54321','654321','0000','1111','2222','3333','4444','5555','6666','7777','8888','9999'])
-  if (banned.has(s)) throw new Error('PIN demasiado común — escoja otro')
+  if (banned.has(s)) bad('PIN demasiado común — escoja otro')
   // Sequential ascending/descending (1234, 2345, ... 9876, 8765, ...)
   let ascending = true, descending = true
   for (let i = 1; i < s.length; i++) {
     if (s.charCodeAt(i) !== s.charCodeAt(i-1) + 1) ascending = false
     if (s.charCodeAt(i) !== s.charCodeAt(i-1) - 1) descending = false
   }
-  if (ascending || descending) throw new Error('PIN secuencial no permitido')
+  if (ascending || descending) bad('PIN secuencial no permitido')
 }
 
 async function hashPin(pin) {
