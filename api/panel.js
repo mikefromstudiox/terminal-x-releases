@@ -5218,25 +5218,37 @@ const _CRON_HEALTH_SPEC = [
     cron_path: '/api/digest/daily',
     expected_within_hours: 26,
     schedule: '0 13 * * *',
-    side_effect: 'activity_log event_type=daily_digest_sent',
+    side_effect: 'app_settings.last_digest_sent OR activity_log daily_digest_sent',
     async check(sb) {
-      // No-op early exit (mirrors V2 DGII pattern): if no business has digest
-      // enabled, the cron correctly writes nothing. Don't flag as a failure.
-      const { count: enabledCount } = await sb.from('app_settings')
-        .select('business_id', { count: 'exact', head: true })
+      // No-op early exit: if no business has digest enabled, the cron writes
+      // nothing. Don't flag as a failure.
+      const { data: enabled } = await sb.from('app_settings')
+        .select('business_id')
         .eq('key', 'daily_digest_enabled')
         .in('value', ['1', 'true', 'TRUE'])
-      if (!enabledCount) return { ok: true, observed_at: null, detail: 'no businesses with daily_digest_enabled — nothing to send' }
-      const { data, error } = await sb.from('activity_log')
-        .select('created_at')
-        .eq('event_type', 'daily_digest_sent')
-        .order('created_at', { ascending: false })
+      const enabledIds = (enabled || []).map(r => r.business_id).filter(Boolean)
+      if (!enabledIds.length) return { ok: true, observed_at: null, detail: 'no businesses with daily_digest_enabled — nothing to send' }
+      // The cron runs daily at 13:00 UTC. Before its first fire of the day,
+      // last_digest_sent will be ≤26h old IF it ran yesterday. Use the
+      // persistent app_settings.last_digest_sent (survives activity_log truncate).
+      const { data: lastSent } = await sb.from('app_settings')
+        .select('business_id,value')
+        .eq('key', 'last_digest_sent')
+        .in('business_id', enabledIds)
+        .order('value', { ascending: false })
         .limit(1)
-        .maybeSingle()
-      if (error) return { ok: false, observed_at: null, detail: `query_error: ${error.message}` }
-      const observed_at = data?.created_at || null
-      if (!observed_at) return { ok: false, observed_at: null, detail: 'no daily_digest_sent activity_log row ever' }
-      const ageH = (Date.now() - new Date(observed_at).getTime()) / 3600000
+      const observed_at = lastSent?.[0]?.value || null
+      if (!observed_at) {
+        // No record ever. Grace-period: if the business was enabled less than
+        // 26h ago and the daily 13:00 UTC slot hasn't passed yet, allow.
+        const nowMs = Date.now()
+        const todayThirteen = new Date()
+        todayThirteen.setUTCHours(13, 0, 0, 0)
+        const slotPassed = nowMs >= todayThirteen.getTime()
+        if (!slotPassed) return { ok: true, observed_at: null, detail: 'awaiting first 13:00 UTC fire of the day' }
+        return { ok: false, observed_at: null, detail: `no last_digest_sent for ${enabledIds.length} enabled business(es)` }
+      }
+      const ageH = (nowMs => (nowMs - new Date(observed_at).getTime()) / 3600000)(Date.now())
       return { ok: ageH <= 26, observed_at, detail: `last digest ${ageH.toFixed(1)}h ago (expect ≤26h)` }
     },
   },
