@@ -1266,7 +1266,7 @@ async function handleErrorsList(req, res) {
   const auth = await requireAdmin(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
   try {
-    const { business_id, unresolved, limit } = req.query
+    const { business_id, unresolved, limit, include_telemetry } = req.query
     let q = auth.supabase.from('client_errors')
       .select('*, businesses(name, rnc)')
       .order('created_at', { ascending: false })
@@ -1275,7 +1275,19 @@ async function handleErrorsList(req, res) {
     if (unresolved === '1') q = q.is('resolved_at', null)
     const { data, error } = await q
     if (error) throw error
-    return res.json({ data: data || [] })
+    // Telemetry noise filter — hide system beacons, config-gap signals, and
+    // zero-info rows that aren't actionable errors. Opt-in via include_telemetry=1.
+    const NOISE_SOURCES = new Set(['mega-smoke', 'tx-cron-smoke'])
+    const NOISE_CATEGORIES = new Set(['claude.triage.whatsapp_skipped', 'meta.dedupe', 'meta.queue', 'meta.big', 'meta.anon'])
+    const rows = (include_telemetry === '1') ? (data || []) : (data || []).filter(r => {
+      const meta = r.metadata || {}
+      if (NOISE_SOURCES.has(meta.source)) return false
+      if (NOISE_CATEGORIES.has(meta.category)) return false
+      if (!r.business_id && r.severity === 'info') return false
+      if (!r.business_id && r.message === 'unknown' && !r.stack && !r.route) return false
+      return true
+    })
+    return res.json({ data: rows })
   } catch (err) { reportServerError(err, { route: '/api/panel', action: req.query?.action || null, businessId: req.body?.business_id || null }).catch(()=>{}); return res.status(500).json({ error: err.message }) }
 }
 
@@ -5208,6 +5220,13 @@ const _CRON_HEALTH_SPEC = [
     schedule: '0 13 * * *',
     side_effect: 'activity_log event_type=daily_digest_sent',
     async check(sb) {
+      // No-op early exit (mirrors V2 DGII pattern): if no business has digest
+      // enabled, the cron correctly writes nothing. Don't flag as a failure.
+      const { count: enabledCount } = await sb.from('app_settings')
+        .select('business_id', { count: 'exact', head: true })
+        .eq('key', 'daily_digest_enabled')
+        .in('value', ['1', 'true', 'TRUE'])
+      if (!enabledCount) return { ok: true, observed_at: null, detail: 'no businesses with daily_digest_enabled — nothing to send' }
       const { data, error } = await sb.from('activity_log')
         .select('created_at')
         .eq('event_type', 'daily_digest_sent')
