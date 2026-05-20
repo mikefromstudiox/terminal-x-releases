@@ -776,6 +776,38 @@ export default function Dashboard({ getToken, refreshToken, isDark }) {
                 const cat = e.metadata?.category || null
                 const meta = e.metadata || {}
                 const catSty = cat ? categoryStyle(cat) : null
+                // System probes (no business attached) — cron health, mega smoke, triage heartbeats,
+                // flow drift, deploy smoke. Render as compact green/neutral "Sistema" row instead of
+                // a red client-error card. Failures (severity=critical OR cat ending in .fail) flip to red.
+                const isSystemRow = !e.business_id
+                if (isSystemRow) {
+                  const isFail = e.severity === 'critical' || (cat && /\.fail$/.test(cat))
+                  const label = cat
+                    ? cat.replace(/^mega_smoke\./, '').replace(/^claude\.triage\./, 'triage·').replace(/^flow_drift\./, 'flujo·').replace(/^deploy\.smoke\./, 'deploy·').replace(/\.fail$/, '')
+                    : L('chequeo', 'check')
+                  const tone = isFail
+                    ? (isDark ? 'bg-[#b3001e]/10 border-[#b3001e]/30 text-[#b3001e]' : 'bg-[#b3001e]/5 border-[#b3001e]/30 text-[#b3001e]')
+                    : (isDark ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-emerald-500/5 border-emerald-500/25 text-emerald-700')
+                  return (
+                    <div key={e.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-[11px] ${tone}`}>
+                      <span className="font-bold uppercase tracking-wider">{L('Sistema', 'System')}</span>
+                      <span className="opacity-60">·</span>
+                      <span className="font-mono font-bold">{isFail ? L('falla', 'fail') : L('OK', 'OK')}</span>
+                      <span className="opacity-60">·</span>
+                      <span className="font-mono truncate flex-1" title={cat || ''}>{label}</span>
+                      <span className={`text-[10px] font-mono ${isDark ? 'text-white/30' : 'text-black/30'}`}>{when}</span>
+                      {isFail && (
+                        <button
+                          onClick={() => { try { navigator.clipboard?.writeText(copyText) } catch (_e) {} }}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/60' : 'bg-black/5 hover:bg-black/10 text-black/60'}`}
+                          title={L('Copiar', 'Copy')}
+                        >
+                          {L('Copiar', 'Copy')}
+                        </button>
+                      )}
+                    </div>
+                  )
+                }
                 return (
                   <div key={e.id} className={`flex items-start gap-3 p-3 rounded-lg ${isDark ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-black/[0.02] hover:bg-black/[0.05]'} transition-colors`}>
                     <div className="flex-1 min-w-0">
